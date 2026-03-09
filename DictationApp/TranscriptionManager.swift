@@ -38,4 +38,5 @@ class TranscriptionManager {
 enum TranscriptionError: Error {
     case notLoaded
     case emptyResult
+    case timeout
 }

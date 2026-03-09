@@ -58,13 +58,34 @@ class DictationViewModel: ObservableObject {
     }
 
     private func transcribe(url: URL) async {
+        // Verify the audio file exists and has content
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        guard fileSize > 0 else {
+            errorMessage = "Recording was empty"
+            state = .idle
+            return
+        }
+
         let manager = transcriptionManager
         do {
-            let text = try await Task.detached(priority: .userInitiated) {
-                try await manager.transcribe(url: url)
-            }.value
+            let text = try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask(priority: .userInitiated) {
+                    try await manager.transcribe(url: url)
+                }
+                // 120 second timeout — large-v3 is slow on first run
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 120_000_000_000)
+                    throw TranscriptionError.timeout
+                }
+                let result = try await group.next()!
+                group.cancelAll()
+                return result
+            }
             transcribedText = text
             copyToClipboard(text)
+            state = .idle
+        } catch TranscriptionError.timeout {
+            errorMessage = "Timeout — model too slow. Try a shorter recording."
             state = .idle
         } catch {
             errorMessage = "Transcription failed: \(error.localizedDescription)"
