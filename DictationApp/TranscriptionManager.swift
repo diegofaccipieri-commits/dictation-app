@@ -12,11 +12,19 @@ class TranscriptionManager: ObservableObject {
     func transcribe(url: URL) async throws -> String {
         guard let whisperKit else { throw TranscriptionError.notLoaded }
 
-        let results = try await whisperKit.transcribe(audioPath: url.path)
-        return results.map { $0.text }.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        let results = await whisperKit.transcribe(audioPaths: [url.path])
+        let text = results
+            .compactMap { $0 }
+            .flatMap { $0 }
+            .map { $0.text }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        if text.isEmpty { throw TranscriptionError.emptyResult }
+        return text
     }
 }
 
 enum TranscriptionError: Error {
     case notLoaded
+    case emptyResult
 }
