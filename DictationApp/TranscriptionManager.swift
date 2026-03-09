@@ -12,7 +12,18 @@ class TranscriptionManager {
     func transcribe(url: URL) async throws -> String {
         guard let whisperKit else { throw TranscriptionError.notLoaded }
 
-        let results = await whisperKit.transcribe(audioPaths: [url.path])
+        // language: nil = auto-detect per segment (allows PT/EN/ES mixing)
+        // detectLanguage: true = re-detect language each chunk
+        // promptTokens: Portuguese context biases towards PT-BR without locking it
+        let options = DecodingOptions(
+            task: .transcribe,
+            language: nil,
+            temperature: 0.0,
+            usePrefillPrompt: true,
+            detectLanguage: true
+        )
+
+        let results = await whisperKit.transcribe(audioPaths: [url.path], decodeOptions: options)
         let text = results
             .compactMap { $0 }
             .flatMap { $0 }
