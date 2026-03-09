@@ -5,10 +5,15 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text(statusText)
-                .font(.subheadline)
-                .foregroundColor(statusColor)
-                .animation(.easeInOut, value: viewModel.state)
+            HStack(spacing: 6) {
+                if viewModel.isModelLoading {
+                    ProgressView().scaleEffect(0.6)
+                }
+                Text(statusText)
+                    .font(.subheadline)
+                    .foregroundColor(statusColor)
+            }
+            .animation(.easeInOut, value: viewModel.state)
 
             ScrollView {
                 Text(viewModel.transcribedText.isEmpty ? "Transcription will appear here..." : viewModel.transcribedText)
@@ -31,7 +36,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(buttonColor)
-            .disabled(viewModel.state == .transcribing)
+            .disabled(viewModel.state == .transcribing || !viewModel.isModelLoaded)
 
             if let error = viewModel.errorMessage {
                 Text(error)
@@ -48,6 +53,8 @@ struct ContentView: View {
     }
 
     private var statusText: String {
+        if viewModel.isModelLoading { return "Loading model..." }
+        if !viewModel.isModelLoaded { return "Model unavailable" }
         switch viewModel.state {
         case .idle: return "Ready"
         case .recording: return "Recording..."
@@ -56,6 +63,8 @@ struct ContentView: View {
     }
 
     private var statusColor: Color {
+        if viewModel.isModelLoading { return .orange }
+        if !viewModel.isModelLoaded { return .red }
         switch viewModel.state {
         case .idle: return .secondary
         case .recording: return .red

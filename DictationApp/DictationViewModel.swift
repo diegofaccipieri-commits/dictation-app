@@ -6,6 +6,8 @@ class DictationViewModel: ObservableObject {
     @Published var state: RecordingState = .idle
     @Published var transcribedText: String = ""
     @Published var errorMessage: String? = nil
+    @Published var isModelLoaded: Bool = false
+    @Published var isModelLoading: Bool = false
 
     private let recorder = AudioRecorder()
     private let transcriptionManager = TranscriptionManager()
@@ -18,14 +20,18 @@ class DictationViewModel: ObservableObject {
     }
 
     private func loadModel() async {
+        isModelLoading = true
         do {
             try await transcriptionManager.loadModel()
+            isModelLoaded = true
         } catch {
             errorMessage = "Failed to load model: \(error.localizedDescription)"
         }
+        isModelLoading = false
     }
 
     func toggle() {
+        guard isModelLoaded else { return }
         switch state {
         case .idle:
             startRecording()
