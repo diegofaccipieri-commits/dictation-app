@@ -6,7 +6,7 @@ class TranscriptionManager {
     private var whisperKit: WhisperKit?
 
     func loadModel() async throws {
-        whisperKit = try await WhisperKit(model: "openai_whisper-small")
+        whisperKit = try await WhisperKit(model: "openai_whisper-large-v3")
     }
 
     func transcribe(url: URL) async throws -> String {
