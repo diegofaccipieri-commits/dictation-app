@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreGraphics
 
 @MainActor
 class DictationViewModel: ObservableObject {
@@ -77,6 +78,7 @@ class DictationViewModel: ObservableObject {
                     } else {
                         self?.transcribedText = text
                         self?.copyToClipboard(text)
+                        self?.pasteIntoFocusedApp()
                         self?.errorMessage = nil
                     }
                     self?.state = .idle
@@ -94,5 +96,19 @@ class DictationViewModel: ObservableObject {
     private func copyToClipboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func pasteIntoFocusedApp() {
+        // Small delay so clipboard write completes before paste
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            let source = CGEventSource(stateID: .hidSystemState)
+            let keyV: CGKeyCode = 0x09
+            let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: keyV, keyDown: true)
+            cmdDown?.flags = .maskCommand
+            cmdDown?.post(tap: .cgAnnotatedSessionEventTap)
+            let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: keyV, keyDown: false)
+            cmdUp?.flags = .maskCommand
+            cmdUp?.post(tap: .cgAnnotatedSessionEventTap)
+        }
     }
 }
