@@ -44,7 +44,7 @@ struct ContentView: View {
                     .foregroundColor(.red)
             }
 
-            Text("Global shortcut: ⌘⌥D")
+            Text("Shortcut: fn fn (double-tap)")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }

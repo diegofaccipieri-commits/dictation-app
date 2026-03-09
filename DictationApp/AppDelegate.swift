@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import KeyboardShortcuts
 import SwiftUI
 
 @MainActor
@@ -9,10 +8,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover?
     let viewModel = DictationViewModel()
     private var cancellables = Set<AnyCancellable>()
+    private let fnMonitor = FnKeyMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBar()
-        setupHotkey()
+        setupFnKey()
     }
 
     func setupMenuBar() {
@@ -42,12 +42,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
     }
 
-    func setupHotkey() {
-        KeyboardShortcuts.onKeyUp(for: .toggleDictation) { [weak self] in
-            Task { @MainActor in
-                self?.viewModel.toggle()
-            }
+    func setupFnKey() {
+        fnMonitor.onDoubleTap = { [weak self] in
+            self?.viewModel.toggle()
         }
+        fnMonitor.start()
     }
 
     @objc func togglePopover() {
