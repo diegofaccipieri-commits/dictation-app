@@ -18,7 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        let contentView = ContentView()
+        let contentView = ContentView(viewModel: DictationViewModel())
         let popover = NSPopover()
         popover.contentSize = NSSize(width: 360, height: 240)
         popover.behavior = .transient
