@@ -1,0 +1,39 @@
+name: DictationApp
+options:
+  bundleIdPrefix: com.diego
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+
+packages:
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit
+    majorVersion: 0.9.0
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    majorVersion: 2.0.0
+
+targets:
+  DictationApp:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - DictationApp
+    info:
+      path: DictationApp/Info.plist
+      properties:
+        LSUIElement: true
+        NSMicrophoneUsageDescription: "DictationApp needs microphone access to record your voice."
+        NSHumanReadableCopyright: ""
+    dependencies:
+      - package: WhisperKit
+      - package: KeyboardShortcuts
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.diego.dictationapp
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "NO"
