@@ -9,28 +9,41 @@ class TranscriptionManager {
         whisperKit = try await WhisperKit(model: "openai_whisper-large-v3")
     }
 
-    func transcribe(url: URL) async throws -> String {
-        guard let whisperKit else { throw TranscriptionError.notLoaded }
-
-        let options = DecodingOptions(
+    private var decodingOptions: DecodingOptions {
+        DecodingOptions(
             task: .transcribe,
-            language: nil,          // auto-detect per segment — allows PT/EN/ES mixing
+            language: nil,
             temperature: 0.0,
             usePrefillPrompt: true,
             detectLanguage: true,
-            noSpeechThreshold: 0.3  // more sensitive (default 0.6 rejects too much)
+            noSpeechThreshold: 0.3
         )
+    }
 
-        let results = await whisperKit.transcribe(audioPaths: [url.path], decodeOptions: options)
-        let text = results
+    // Final transcription from file — used after recording stops
+    func transcribe(url: URL) async throws -> String {
+        guard let whisperKit else { throw TranscriptionError.notLoaded }
+
+        let results = await whisperKit.transcribe(audioPaths: [url.path], decodeOptions: decodingOptions)
+        return results
             .compactMap { $0 }
             .flatMap { $0 }
             .map { $0.text }
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespaces)
+    }
 
-        // Return empty string for silence — not an error
-        return text
+    // Streaming transcription from raw samples — used during recording
+    func transcribeSamples(_ samples: [Float]) async -> String {
+        guard let whisperKit else { return "" }
+
+        let results = await whisperKit.transcribe(audioArrays: [samples], decodeOptions: decodingOptions)
+        return results
+            .compactMap { $0 }
+            .flatMap { $0 }
+            .map { $0.text }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
     }
 }
 
