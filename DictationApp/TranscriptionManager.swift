@@ -1,8 +1,8 @@
 import WhisperKit
 import Foundation
 
-@MainActor
-class TranscriptionManager: ObservableObject {
+// NOT @MainActor — transcription is CPU/GPU heavy and must run off the main thread
+class TranscriptionManager {
     private var whisperKit: WhisperKit?
 
     func loadModel() async throws {

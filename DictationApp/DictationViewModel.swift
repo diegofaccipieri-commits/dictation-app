@@ -58,8 +58,11 @@ class DictationViewModel: ObservableObject {
     }
 
     private func transcribe(url: URL) async {
+        let manager = transcriptionManager
         do {
-            let text = try await transcriptionManager.transcribe(url: url)
+            let text = try await Task.detached(priority: .userInitiated) {
+                try await manager.transcribe(url: url)
+            }.value
             transcribedText = text
             copyToClipboard(text)
             state = .idle
