@@ -9,14 +9,24 @@
 /* Begin PBXBuildFile section */
 		0532F7CC9BFAB959362B756A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8AD2F1132A9EEC08366D2A4B /* WhisperKit */; };
 		0ACB384166C92BC787992471 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 4D9CF33863B95BC063C6DA7D /* KeyboardShortcuts */; };
+		38F27DBAE2090CAF4B76CA8A /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F9740C345122FA73E95E61 /* AudioRecorder.swift */; };
+		4A2CD45EB756D26F22AC98C0 /* DictationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AA2DB2253E05E4CA4F3AD0 /* DictationViewModel.swift */; };
+		5C3A024A857271A7DB5CFCFB /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */; };
 		6FD1C879FBB99E9F3D5C539E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1290CAE439A7561A41F669 /* ContentView.swift */; };
 		8F39F043B33C6252F68B5112 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30EAB6BEAB3CE8B50A40C939 /* AppDelegate.swift */; };
 		914EA6A02DC3169EC75C21A6 /* DictationApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888388B0B045E88481C1043B /* DictationApp.swift */; };
+		D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */; };
+		E26CEF7EE43878A9BF34BED9 /* RecordingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionManager.swift; sourceTree = "<group>"; };
+		09F9740C345122FA73E95E61 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
 		2BEDE44D29C8252B3214EAD7 /* DictationApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DictationApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		30EAB6BEAB3CE8B50A40C939 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		43AA2DB2253E05E4CA4F3AD0 /* DictationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationViewModel.swift; sourceTree = "<group>"; };
+		47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingState.swift; sourceTree = "<group>"; };
+		6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		888388B0B045E88481C1043B /* DictationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationApp.swift; sourceTree = "<group>"; };
 		AC198E3C20403986C286C56F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		AE1290CAE439A7561A41F669 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -47,9 +57,14 @@
 			isa = PBXGroup;
 			children = (
 				30EAB6BEAB3CE8B50A40C939 /* AppDelegate.swift */,
+				09F9740C345122FA73E95E61 /* AudioRecorder.swift */,
 				AE1290CAE439A7561A41F669 /* ContentView.swift */,
 				888388B0B045E88481C1043B /* DictationApp.swift */,
+				43AA2DB2253E05E4CA4F3AD0 /* DictationViewModel.swift */,
+				6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */,
 				AC198E3C20403986C286C56F /* Info.plist */,
+				47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */,
+				010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */,
 			);
 			path = DictationApp;
 			sourceTree = "<group>";
@@ -125,8 +140,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				8F39F043B33C6252F68B5112 /* AppDelegate.swift in Sources */,
+				38F27DBAE2090CAF4B76CA8A /* AudioRecorder.swift in Sources */,
 				6FD1C879FBB99E9F3D5C539E /* ContentView.swift in Sources */,
 				914EA6A02DC3169EC75C21A6 /* DictationApp.swift in Sources */,
+				4A2CD45EB756D26F22AC98C0 /* DictationViewModel.swift in Sources */,
+				5C3A024A857271A7DB5CFCFB /* HotkeyManager.swift in Sources */,
+				E26CEF7EE43878A9BF34BED9 /* RecordingState.swift in Sources */,
+				D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
