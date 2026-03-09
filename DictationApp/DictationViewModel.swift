@@ -14,7 +14,7 @@ class DictationViewModel: ObservableObject {
 
     init() {
         recorder.onRecordingFinished = { [weak self] url in
-            Task { await self?.transcribe(url: url) }
+            self?.transcribe(url: url)
         }
         Task { await self.loadModel() }
     }
@@ -57,8 +57,9 @@ class DictationViewModel: ObservableObject {
         recorder.stopRecording()
     }
 
-    private func transcribe(url: URL) async {
-        // Verify the audio file exists and has content
+    private var transcriptionTask: Task<Void, Never>?
+
+    private func transcribe(url: URL) {
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
         guard fileSize > 0 else {
             errorMessage = "Recording was empty"
@@ -67,31 +68,27 @@ class DictationViewModel: ObservableObject {
         }
 
         let manager = transcriptionManager
-        do {
-            let text = try await withThrowingTaskGroup(of: String.self) { group in
-                group.addTask(priority: .userInitiated) {
-                    try await manager.transcribe(url: url)
+        transcriptionTask = Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                let text = try await manager.transcribe(url: url)
+                await MainActor.run {
+                    if text.isEmpty {
+                        self?.errorMessage = "No speech detected"
+                    } else {
+                        self?.transcribedText = text
+                        self?.copyToClipboard(text)
+                        self?.errorMessage = nil
+                    }
+                    self?.state = .idle
                 }
-                // 120 second timeout — large-v3 is slow on first run
-                group.addTask {
-                    try await Task.sleep(nanoseconds: 120_000_000_000)
-                    throw TranscriptionError.timeout
+            } catch {
+                await MainActor.run {
+                    self?.errorMessage = "Transcription failed: \(error.localizedDescription)"
+                    self?.state = .idle
                 }
-                let result = try await group.next()!
-                group.cancelAll()
-                return result
             }
-            transcribedText = text
-            copyToClipboard(text)
-            state = .idle
-        } catch TranscriptionError.timeout {
-            errorMessage = "Timeout — model too slow. Try a shorter recording."
-            state = .idle
-        } catch {
-            errorMessage = "Transcription failed: \(error.localizedDescription)"
-            state = .idle
+            try? FileManager.default.removeItem(at: url)
         }
-        try? FileManager.default.removeItem(at: url)
     }
 
     private func copyToClipboard(_ text: String) {
