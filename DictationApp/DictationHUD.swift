@@ -1,32 +1,50 @@
 import AppKit
 import SwiftUI
 
-// Small floating HUD that appears near the cursor during recording/transcribing
+// Floating HUD near the cursor — shows recording state and live transcription preview.
 class DictationHUD {
     private var panel: NSPanel?
+    private var anchorPoint: NSPoint = .zero
 
     func show(state: RecordingState, near point: NSPoint) {
+        anchorPoint = point
         if panel == nil { createPanel() }
-        guard let panel else { return }
-
-        let hudView = HUDView(state: state)
-        panel.contentViewController = NSHostingController(rootView: hudView)
-
-        // Position near cursor, offset down-right so it doesn't cover the insertion point
-        let size = NSSize(width: 56, height: 56)
-        let origin = NSPoint(x: point.x + 16, y: point.y - 70)
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
-        panel.orderFrontRegardless()
+        showStatus(state)
+        panel?.orderFrontRegardless()
     }
 
     func update(state: RecordingState) {
         guard let panel, panel.isVisible else { return }
-        let hudView = HUDView(state: state)
-        panel.contentViewController = NSHostingController(rootView: hudView)
+        showStatus(state)
+    }
+
+    // Called by the streaming loop as partial text arrives.
+    // Shows a text bubble near the cursor so the user can see what's being transcribed
+    // without opening the app popover.
+    func updateText(_ text: String) {
+        guard let panel, panel.isVisible, !text.isEmpty else { return }
+
+        // Show only the tail so the bubble stays compact.
+        let tail = text.count > 100 ? "…" + String(text.suffix(97)) : text
+        let view = HUDTextView(text: tail)
+        panel.contentViewController = NSHostingController(rootView: view)
+
+        // Resize to fit text, capped at 420px wide.
+        let estimated = CGFloat(tail.count) * 7.5 + 32
+        let width = min(420, max(180, estimated))
+        let origin = NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 76)
+        panel.setFrame(NSRect(origin: origin, size: NSSize(width: width, height: 48)), display: true)
     }
 
     func hide() {
         panel?.orderOut(nil)
+    }
+
+    private func showStatus(_ state: RecordingState) {
+        let view = HUDView(state: state)
+        panel?.contentViewController = NSHostingController(rootView: view)
+        let origin = NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 70)
+        panel?.setFrame(NSRect(origin: origin, size: NSSize(width: 56, height: 56)), display: true)
     }
 
     private func createPanel() {
@@ -43,6 +61,24 @@ class DictationHUD {
         p.hasShadow = true
         p.ignoresMouseEvents = true
         panel = p
+    }
+}
+
+private struct HUDTextView: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundColor(.primary)
+            .lineLimit(2)
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
     }
 }
 

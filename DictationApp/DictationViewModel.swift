@@ -153,12 +153,12 @@ class DictationViewModel: ObservableObject {
                 let safeIdx = min(commitIdx, allSamples.count)
                 let pendingSamples = Array(allSamples[safeIdx...])
                 let minSamples = Int(sampleRate)
+
                 guard pendingSamples.count >= minSamples else { continue }
 
                 let chunkSize = Int(sampleRate) * chunk
 
                 if pendingSamples.count >= chunkSize {
-                    // Commit this full chunk (constant cost: always chunkSeconds of audio).
                     let chunkSamples = Array(pendingSamples.prefix(chunkSize))
                     let chunkText = await manager.transcribeSamples(chunkSamples)
 
@@ -169,9 +169,9 @@ class DictationViewModel: ObservableObject {
                         }
                         self.committedSampleIndex = safeIdx + chunkSize
                         self.transcribedText = self.committedText
+                        self.hud.updateText(self.committedText)
                     }
                 } else {
-                    // Live preview of the current in-progress chunk.
                     let previewText = await manager.transcribeSamples(pendingSamples)
 
                     guard !Task.isCancelled else { break }
@@ -181,6 +181,7 @@ class DictationViewModel: ObservableObject {
                         } else {
                             self.transcribedText = committed.isEmpty ? previewText : committed + " " + previewText
                         }
+                        self.hud.updateText(self.transcribedText)
                     }
                 }
             }
