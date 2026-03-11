@@ -4,7 +4,8 @@ struct ContentView: View {
     @ObservedObject var viewModel: DictationViewModel
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
+            // Status
             HStack(spacing: 6) {
                 if viewModel.isModelLoading {
                     ProgressView().scaleEffect(0.6)
@@ -15,6 +16,7 @@ struct ContentView: View {
             }
             .animation(.easeInOut, value: viewModel.state)
 
+            // Current transcription
             ScrollView {
                 Text(viewModel.transcribedText.isEmpty ? "Transcription will appear here..." : viewModel.transcribedText)
                     .font(.body)
@@ -22,11 +24,12 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
-            .frame(height: 100)
+            .frame(height: 80)
             .padding(8)
             .background(Color(NSColor.textBackgroundColor))
             .cornerRadius(8)
 
+            // Record button
             Button(action: viewModel.toggle) {
                 HStack {
                     Image(systemName: buttonIcon)
@@ -44,21 +47,53 @@ struct ContentView: View {
                     .foregroundColor(.red)
             }
 
-            Text("Shortcut: fn fn (double-tap)")
+            // History
+            if !viewModel.history.isEmpty {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Recent")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    ForEach(viewModel.history, id: \.self) { item in
+                        HistoryRow(text: item) {
+                            viewModel.reuseHistoryItem(item)
+                        }
+                    }
+                }
+            }
+
+            // Wake word toggle
+            Toggle(isOn: Binding(
+                get: { viewModel.isWakeWordEnabled },
+                set: { viewModel.setWakeWord(enabled: $0) }
+            )) {
+                HStack(spacing: 4) {
+                    Image(systemName: "waveform")
+                    Text("\"Sileide\" wake word")
+                }
+                .font(.caption)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+
+            Text("Shortcut: fn fn  •  ESC to cancel")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
         .padding()
-        .frame(width: 360, height: 260)
+        .frame(width: 360, height: viewModel.history.isEmpty ? 260 : 260 + CGFloat(viewModel.history.count) * 46)
     }
 
     private var statusText: String {
         if viewModel.isModelLoading { return "Loading model..." }
         if !viewModel.isModelLoaded { return "Model unavailable" }
         switch viewModel.state {
-        case .idle: return "Ready"
+        case .idle: return viewModel.isFinalModelReady ? "Ready (HD)" : "Ready (loading HD...)"
         case .recording: return "Recording..."
-        case .transcribing: return "Transcribing..."
+        case .transcribing: return viewModel.isFinalModelReady ? "Transcribing (HD)..." : "Transcribing..."
         }
     }
 
@@ -90,5 +125,33 @@ struct ContentView: View {
 
     private var buttonColor: Color {
         viewModel.state == .recording ? .red : .accentColor
+    }
+}
+
+private struct HistoryRow: View {
+    let text: String
+    let onReuse: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(text)
+                .font(.caption)
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: onReuse) {
+                Image(systemName: "arrow.up.doc.on.clipboard")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("Copy and paste")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(hovered ? Color(NSColor.selectedContentBackgroundColor).opacity(0.15) : Color(NSColor.textBackgroundColor))
+        .cornerRadius(6)
+        .onHover { hovered = $0 }
     }
 }

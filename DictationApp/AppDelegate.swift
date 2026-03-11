@@ -43,9 +43,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func setupFnKey() {
-        fnMonitor.onDoubleTap = { [weak self] in
-            self?.viewModel.toggle()
-        }
+        fnMonitor.onDoubleTap = { [weak self] in self?.viewModel.toggle() }
+        fnMonitor.onEscape = { [weak self] in self?.viewModel.cancel() }
         fnMonitor.start()
     }
 

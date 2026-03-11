@@ -22,13 +22,14 @@ class AudioRecorder: NSObject, ObservableObject {
 
     func startRecording() throws {
         sampleBuffer = []
+        sampleRate = 16000  // buffer is always resampled to 16kHz (WhisperKit requirement)
 
         let engine = AVAudioEngine()
         audioEngine = engine
 
         let inputNode = engine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
-        sampleRate = format.sampleRate
+        let nativeSampleRate = format.sampleRate
 
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -41,19 +42,39 @@ class AudioRecorder: NSObject, ObservableObject {
             guard let self else { return }
             try? self.audioFile?.write(from: buffer)
 
-            // Accumulate mono samples for streaming
+            // Accumulate samples resampled to 16kHz — WhisperKit's transcribe(audioArrays:) expects 16kHz.
+            // The WAV file stays at native rate (WhisperKit reads its header when using audioPaths).
             if let channelData = buffer.floatChannelData?[0] {
-                let samples = Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
+                let frameCount = Int(buffer.frameLength)
+                let native = Array(UnsafeBufferPointer(start: channelData, count: frameCount))
+                let resampled = AudioRecorder.resampleTo16k(samples: native, fromRate: nativeSampleRate)
                 self.sampleLock.lock()
-                self.sampleBuffer.append(contentsOf: samples)
+                self.sampleBuffer.append(contentsOf: resampled)
                 let allSamples = self.sampleBuffer
-                let rate = self.sampleRate
                 self.sampleLock.unlock()
-                self.onSamplesAvailable?(allSamples, rate)
+                self.onSamplesAvailable?(allSamples, 16000)
             }
         }
 
         try engine.start()
+    }
+
+    // Linear interpolation resample to 16kHz — accurate enough for speech.
+    private static func resampleTo16k(samples: [Float], fromRate srcRate: Double) -> [Float] {
+        guard srcRate != 16000, !samples.isEmpty else { return samples }
+        let ratio = srcRate / 16000.0
+        let targetCount = Int(Double(samples.count) / ratio)
+        var out = [Float]()
+        out.reserveCapacity(targetCount)
+        for i in 0..<targetCount {
+            let pos = Double(i) * ratio
+            let idx = Int(pos)
+            let frac = Float(pos - Double(idx))
+            let s0 = samples[idx]
+            let s1 = idx + 1 < samples.count ? samples[idx + 1] : s0
+            out.append(s0 + frac * (s1 - s0))
+        }
+        return out
     }
 
     func stopRecording() {

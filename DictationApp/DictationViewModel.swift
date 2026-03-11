@@ -9,6 +9,7 @@ class DictationViewModel: ObservableObject {
     @Published var errorMessage: String? = nil
     @Published var isModelLoaded: Bool = false
     @Published var isModelLoading: Bool = false
+    @Published var isFinalModelReady: Bool = false
     @Published var history: [String] = (UserDefaults.standard.array(forKey: "transcriptionHistory") as? [String]) ?? []
     @Published var isWakeWordEnabled: Bool = UserDefaults.standard.bool(forKey: "wakeWordEnabled")
 
@@ -19,20 +20,19 @@ class DictationViewModel: ObservableObject {
     private var transcriptionTask: Task<Void, Never>?
     private var streamingTask: Task<Void, Never>?
 
-    // Chunked streaming state:
-    // Instead of re-transcribing all audio every N seconds (O(n) growth),
-    // we commit fixed-size chunks and only process new audio each cycle.
-    // Transcription time stays constant regardless of total recording length.
+    // Streaming: accumulated committed text + current chunk pointer.
+    // Small model commits chunks during recording as a live preview.
+    // Large-v3 replaces everything with accurate result when recording stops.
     private var committedText: String = ""
     private var committedSampleIndex: Int = 0
-    private let chunkSeconds = 7  // commit a chunk every 7 seconds of audio
+    private let chunkSeconds = 7
 
     init() {
         wakeWordMonitor.onWakeWord = { [weak self] in
             guard let self, self.state == .idle else { return }
             self.toggle()
         }
-        Task { await self.loadModel() }
+        Task { await self.loadModels() }
     }
 
     func setWakeWord(enabled: Bool) {
@@ -48,11 +48,24 @@ class DictationViewModel: ObservableObject {
         }
     }
 
-    private func loadModel() async {
+    private func loadModels() async {
         isModelLoading = true
         do {
-            try await transcriptionManager.loadModel()
+            // loadModels() returns after small model is ready.
+            // Large-v3 loads in the background inside TranscriptionManager.
+            try await transcriptionManager.loadModels()
             isModelLoaded = true
+            // Poll until large-v3 is ready, then expose it to the UI.
+            Task.detached(priority: .background) { [weak self] in
+                while true {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    let ready = await self?.transcriptionManager.isFinalModelReady ?? false
+                    if ready {
+                        await MainActor.run { self?.isFinalModelReady = true }
+                        break
+                    }
+                }
+            }
         } catch {
             errorMessage = "Failed to load model: \(error.localizedDescription)"
         }
@@ -79,14 +92,14 @@ class DictationViewModel: ObservableObject {
         transcriptionTask = nil
         recorder.onRecordingFinished = { url in try? FileManager.default.removeItem(at: url) }
         recorder.stopRecording()
-        resetCommittedState()
+        resetStreamingState()
         state = .idle
         hud.hide()
         if isWakeWordEnabled { wakeWordMonitor.start() }
     }
 
     private func startRecording() {
-        resetCommittedState()
+        resetStreamingState()
         transcribedText = ""
         errorMessage = nil
         wakeWordMonitor.stop()
@@ -108,28 +121,20 @@ class DictationViewModel: ObservableObject {
         state = .transcribing
         hud.update(state: .transcribing)
 
-        // Snapshot uncommitted audio BEFORE stopping — stopRecording() clears the buffer.
-        let (allSamples, sampleRate) = recorder.currentSamples
-        let safeIdx = min(committedSampleIndex, allSamples.count)
-        let uncommitted = Array(allSamples[safeIdx...])
-        let baseText = committedText
-
-        // Use the WAV callback only to clean up the temp file.
-        recorder.onRecordingFinished = { url in
-            try? FileManager.default.removeItem(at: url)
+        // Final transcription uses the WAV file via large-v3 (or small if not ready yet).
+        // Large-v3 correctly handles PT/EN/ES code-switching.
+        recorder.onRecordingFinished = { [weak self] url in
+            self?.finalizeTranscription(url: url)
         }
         recorder.stopRecording()
-
-        finalizeWithSamples(committed: baseText, remaining: uncommitted, sampleRate: sampleRate)
+        resetStreamingState()
     }
 
-    // MARK: - Streaming loop (runs during recording)
+    // MARK: - Streaming loop (small model, live preview during recording)
     //
-    // Every 2 seconds:
-    //   - If pending audio >= chunkSeconds: commit that chunk (constant transcription cost)
-    //   - Otherwise: show live preview of pending audio (small window, fast)
-    //
-    // Committed chunks are never re-processed. Total work per cycle = O(1).
+    // Commits 7-second chunks of audio as "done" — doesn't re-transcribe them.
+    // Shows a rolling preview of the current in-progress chunk.
+    // Text accumulates visibly as the user speaks.
 
     private func startStreamingLoop() {
         let manager = transcriptionManager
@@ -147,13 +152,13 @@ class DictationViewModel: ObservableObject {
 
                 let safeIdx = min(commitIdx, allSamples.count)
                 let pendingSamples = Array(allSamples[safeIdx...])
-                let minSamples = Int(sampleRate)  // need at least 1 second
+                let minSamples = Int(sampleRate)
                 guard pendingSamples.count >= minSamples else { continue }
 
                 let chunkSize = Int(sampleRate) * chunk
 
                 if pendingSamples.count >= chunkSize {
-                    // Full chunk ready — commit it. Cost: always chunkSeconds of audio.
+                    // Commit this full chunk (constant cost: always chunkSeconds of audio).
                     let chunkSamples = Array(pendingSamples.prefix(chunkSize))
                     let chunkText = await manager.transcribeSamples(chunkSamples)
 
@@ -166,7 +171,7 @@ class DictationViewModel: ObservableObject {
                         self.transcribedText = self.committedText
                     }
                 } else {
-                    // Not enough for a commit — live preview of the current in-progress chunk.
+                    // Live preview of the current in-progress chunk.
                     let previewText = await manager.transcribeSamples(pendingSamples)
 
                     guard !Task.isCancelled else { break }
@@ -182,52 +187,57 @@ class DictationViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Final transcription (only uncommitted tail)
+    // MARK: - Final transcription (large-v3, full WAV file)
     //
-    // Because chunks are committed during recording, on stop we only transcribe
-    // the remaining unprocessed audio (< chunkSeconds). Stopping feels near-instant
-    // regardless of how long the user recorded.
+    // Replaces the streaming preview with the accurate multilingual result.
+    // Large-v3 correctly preserves code-switching (PT/EN/ES).
 
-    private func finalizeWithSamples(committed: String, remaining: [Float], sampleRate: Double) {
+    private func finalizeTranscription(url: URL) {
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        guard fileSize > 0 else {
+            errorMessage = "Recording was empty"
+            state = .idle
+            hud.hide()
+            return
+        }
+
         let manager = transcriptionManager
-        let minSamples = Int(sampleRate)  // at least 1 second
-
         transcriptionTask = Task.detached(priority: .userInitiated) { [weak self] in
-            var finalText = committed
-
-            if remaining.count >= minSamples {
-                let remainingText = await manager.transcribeSamples(remaining)
-                if !remainingText.isEmpty {
-                    finalText = finalText.isEmpty ? remainingText : finalText + " " + remainingText
+            do {
+                let text = try await manager.transcribeFinal(url: url)
+                await MainActor.run {
+                    if text.isEmpty {
+                        self?.errorMessage = "No speech detected"
+                    } else {
+                        self?.transcribedText = text
+                        self?.addToHistory(text)
+                        self?.copyToClipboard(text)
+                        self?.pasteIntoFocusedApp()
+                        self?.errorMessage = nil
+                    }
+                    self?.state = .idle
+                    self?.hud.hide()
+                    if self?.isWakeWordEnabled == true { self?.wakeWordMonitor.start() }
+                }
+            } catch {
+                await MainActor.run {
+                    self?.errorMessage = "Transcription failed: \(error.localizedDescription)"
+                    self?.state = .idle
+                    self?.hud.hide()
+                    if self?.isWakeWordEnabled == true { self?.wakeWordMonitor.start() }
                 }
             }
-
-            await MainActor.run {
-                self?.resetCommittedState()
-                if finalText.isEmpty {
-                    self?.errorMessage = "No speech detected"
-                } else {
-                    self?.transcribedText = finalText
-                    self?.addToHistory(finalText)
-                    self?.copyToClipboard(finalText)
-                    self?.pasteIntoFocusedApp()
-                    self?.errorMessage = nil
-                }
-                self?.state = .idle
-                self?.hud.hide()
-                if self?.isWakeWordEnabled == true { self?.wakeWordMonitor.start() }
-            }
+            try? FileManager.default.removeItem(at: url)
         }
     }
 
     // MARK: - Helpers
 
-    private func resetCommittedState() {
+    private func resetStreamingState() {
         committedText = ""
         committedSampleIndex = 0
     }
 
-    // Bridge to read recorder samples from a detached task (hops to MainActor).
     private func samplesSnapshot() -> ([Float], Double) {
         recorder.currentSamples
     }

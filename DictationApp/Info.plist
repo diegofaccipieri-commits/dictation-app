@@ -24,5 +24,7 @@
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>DictationApp needs microphone access to record your voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>DictationApp uses speech recognition to detect the wake word Sileide.</string>
 </dict>
 </plist>

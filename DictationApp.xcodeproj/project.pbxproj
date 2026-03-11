@@ -13,23 +13,31 @@
 		4A2CD45EB756D26F22AC98C0 /* DictationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AA2DB2253E05E4CA4F3AD0 /* DictationViewModel.swift */; };
 		5C3A024A857271A7DB5CFCFB /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */; };
 		6FD1C879FBB99E9F3D5C539E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1290CAE439A7561A41F669 /* ContentView.swift */; };
+		78718CE7AF4C50710384BF45 /* DictationHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADE0027A68F764D4EA91A6D /* DictationHUD.swift */; };
+		812119C11B13B90BFE27BF83 /* WakeWordMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */; };
+		82CB4434A7ACD8C1F8E5F92A /* FnKeyMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01109107F1370EA626F4B828 /* FnKeyMonitor.swift */; };
 		8F39F043B33C6252F68B5112 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30EAB6BEAB3CE8B50A40C939 /* AppDelegate.swift */; };
 		914EA6A02DC3169EC75C21A6 /* DictationApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888388B0B045E88481C1043B /* DictationApp.swift */; };
+		A27AF33A1FB87FD4D02A53E9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9A88AA362405D41E5E904895 /* Assets.xcassets */; };
 		D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */; };
 		E26CEF7EE43878A9BF34BED9 /* RecordingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionManager.swift; sourceTree = "<group>"; };
+		01109107F1370EA626F4B828 /* FnKeyMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnKeyMonitor.swift; sourceTree = "<group>"; };
 		09F9740C345122FA73E95E61 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
+		1ADE0027A68F764D4EA91A6D /* DictationHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationHUD.swift; sourceTree = "<group>"; };
 		2BEDE44D29C8252B3214EAD7 /* DictationApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DictationApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		30EAB6BEAB3CE8B50A40C939 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		43AA2DB2253E05E4CA4F3AD0 /* DictationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationViewModel.swift; sourceTree = "<group>"; };
 		47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingState.swift; sourceTree = "<group>"; };
 		6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		888388B0B045E88481C1043B /* DictationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationApp.swift; sourceTree = "<group>"; };
+		9A88AA362405D41E5E904895 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AC198E3C20403986C286C56F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		AE1290CAE439A7561A41F669 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordMonitor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -57,14 +65,18 @@
 			isa = PBXGroup;
 			children = (
 				30EAB6BEAB3CE8B50A40C939 /* AppDelegate.swift */,
+				9A88AA362405D41E5E904895 /* Assets.xcassets */,
 				09F9740C345122FA73E95E61 /* AudioRecorder.swift */,
 				AE1290CAE439A7561A41F669 /* ContentView.swift */,
 				888388B0B045E88481C1043B /* DictationApp.swift */,
+				1ADE0027A68F764D4EA91A6D /* DictationHUD.swift */,
 				43AA2DB2253E05E4CA4F3AD0 /* DictationViewModel.swift */,
+				01109107F1370EA626F4B828 /* FnKeyMonitor.swift */,
 				6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */,
 				AC198E3C20403986C286C56F /* Info.plist */,
 				47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */,
 				010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */,
+				C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */,
 			);
 			path = DictationApp;
 			sourceTree = "<group>";
@@ -85,6 +97,7 @@
 			buildConfigurationList = 85CB74E4ECEE35555532E144 /* Build configuration list for PBXNativeTarget "DictationApp" */;
 			buildPhases = (
 				C4ACEC5A0B4CD1CEF3149E75 /* Sources */,
+				AD8459A809D2F18B6DBFC2D9 /* Resources */,
 				58DD8E37B2EC80B77810C984 /* Frameworks */,
 			);
 			buildRules = (
@@ -134,6 +147,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		AD8459A809D2F18B6DBFC2D9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A27AF33A1FB87FD4D02A53E9 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		C4ACEC5A0B4CD1CEF3149E75 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -143,10 +167,13 @@
 				38F27DBAE2090CAF4B76CA8A /* AudioRecorder.swift in Sources */,
 				6FD1C879FBB99E9F3D5C539E /* ContentView.swift in Sources */,
 				914EA6A02DC3169EC75C21A6 /* DictationApp.swift in Sources */,
+				78718CE7AF4C50710384BF45 /* DictationHUD.swift in Sources */,
 				4A2CD45EB756D26F22AC98C0 /* DictationViewModel.swift in Sources */,
+				82CB4434A7ACD8C1F8E5F92A /* FnKeyMonitor.swift in Sources */,
 				5C3A024A857271A7DB5CFCFB /* HotkeyManager.swift in Sources */,
 				E26CEF7EE43878A9BF34BED9 /* RecordingState.swift in Sources */,
 				D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */,
+				812119C11B13B90BFE27BF83 /* WakeWordMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
