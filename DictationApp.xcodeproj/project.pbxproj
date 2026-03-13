@@ -21,6 +21,7 @@
 		A27AF33A1FB87FD4D02A53E9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9A88AA362405D41E5E904895 /* Assets.xcassets */; };
 		D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */; };
 		E26CEF7EE43878A9BF34BED9 /* RecordingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */; };
+		FA99BB11CC22DD33EE44FF55 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB11CC22DD33EE44FF5599AA /* UpdateChecker.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +38,7 @@
 		9A88AA362405D41E5E904895 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AC198E3C20403986C286C56F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		AE1290CAE439A7561A41F669 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		BB11CC22DD33EE44FF5599AA /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordMonitor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -76,6 +78,7 @@
 				AC198E3C20403986C286C56F /* Info.plist */,
 				47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */,
 				010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */,
+				BB11CC22DD33EE44FF5599AA /* UpdateChecker.swift */,
 				C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */,
 			);
 			path = DictationApp;
@@ -173,6 +176,7 @@
 				5C3A024A857271A7DB5CFCFB /* HotkeyManager.swift in Sources */,
 				E26CEF7EE43878A9BF34BED9 /* RecordingState.swift in Sources */,
 				D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */,
+				FA99BB11CC22DD33EE44FF55 /* UpdateChecker.swift in Sources */,
 				812119C11B13B90BFE27BF83 /* WakeWordMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

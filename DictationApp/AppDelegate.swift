@@ -11,8 +11,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let fnMonitor = FnKeyMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Accessory policy: app name visible in menu bar but never steals keyboard focus.
+        NSApp.setActivationPolicy(.accessory)
         setupMenuBar()
         requestAccessibilityAndSetupFnKey()
+        // Check for updates silently on launch.
+        UpdateChecker.checkForUpdates(userInitiated: false)
+    }
+
+    // Clicking the Dock icon shows the popover.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        togglePopover()
+        return false
     }
 
     func setupMenuBar() {
@@ -39,6 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let iconName = state == .recording ? "mic.fill" : "mic"
                 self?.statusItem?.button?.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Dictation")
                 self?.statusItem?.button?.contentTintColor = state == .recording ? .systemRed : nil
+                self?.fnMonitor.isRecording = (state == .recording)
             }
             .store(in: &cancellables)
     }
@@ -85,12 +96,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func showContextMenu() {
         let menu = NSMenu()
 
+        // Version header (disabled, info only)
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let versionItem = NSMenuItem(title: "DictationApp v\(version)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+
+        menu.addItem(.separator())
+
         let stateItem = NSMenuItem(title: viewModel.state == .recording ? "Stop Recording" : "Start Recording",
                                    action: #selector(toggleRecording), keyEquivalent: "")
         stateItem.target = self
         menu.addItem(stateItem)
 
         menu.addItem(.separator())
+
+        let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
 
         let restartItem = NSMenuItem(title: "Restart", action: #selector(restartApp), keyEquivalent: "")
         restartItem.target = self
@@ -102,6 +125,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil  // remove after showing so left-click still works
+    }
+
+    @objc func checkForUpdates() {
+        UpdateChecker.checkForUpdates(userInitiated: true)
     }
 
     @objc func toggleRecording() {

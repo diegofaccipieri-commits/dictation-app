@@ -79,9 +79,13 @@ struct ContentView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
 
-            Text("Shortcut: fn fn  •  ESC to cancel")
-                .font(.caption2)
-                .foregroundColor(.secondary)
+            HStack {
+                Text("Shortcut: fn fn  •  ESC to cancel")
+                Spacer()
+                Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
+            }
+            .font(.caption2)
+            .foregroundColor(.secondary)
         }
         .padding()
         .frame(width: 360, height: viewModel.history.isEmpty ? 260 : 260 + CGFloat(viewModel.history.count) * 46)
