@@ -1,8 +1,8 @@
 import CoreGraphics
 import AppKit
 
-// Detects double-tap of the fn key via CGEventTap
-// fn key sends flagsChanged events with maskSecondaryFn flag, NOT keyDown
+// Detects double-tap of the fn key via CGEventTap.
+// fn key sends flagsChanged events with maskSecondaryFn flag, NOT keyDown.
 class FnKeyMonitor {
     var onDoubleTap: (() -> Void)?
     var onEscape: (() -> Void)?
@@ -14,7 +14,6 @@ class FnKeyMonitor {
     private let escKeyCode: CGKeyCode = 53
 
     func start() {
-        // fn key sends flagsChanged; ESC sends keyDown
         let eventMask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
                       | CGEventMask(1 << CGEventType.keyDown.rawValue)
 
@@ -32,11 +31,11 @@ class FnKeyMonitor {
         )
 
         guard let tap else {
-            print("DictationApp: could not create event tap — grant Accessibility permission in System Settings → Privacy → Accessibility")
+            NSLog("DictationApp: could not create event tap — grant Accessibility in System Settings → Privacy → Accessibility")
             return
         }
 
-        print("DictationApp: fn key monitor started")
+        NSLog("DictationApp: fn double-tap monitor started")
         eventTap = tap
         let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
@@ -51,30 +50,36 @@ class FnKeyMonitor {
     }
 
     private func handle(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // ESC key: cancel recording if active
+        // ESC: cancel recording
         if event.type == .keyDown && CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode)) == escKeyCode {
+            NSLog("DictationApp: ESC keyDown received")
             DispatchQueue.main.async { [weak self] in self?.onEscape?() }
             return Unmanaged.passUnretained(event)
         }
 
-        let flags = event.flags
-        let fnDown = flags.contains(.maskSecondaryFn)
+        guard event.type == .flagsChanged else {
+            return Unmanaged.passUnretained(event)
+        }
 
-        // Detect fn key press (transition from up to down)
+        let fnDown = event.flags.contains(.maskSecondaryFn)
+        NSLog("DictationApp: flagsChanged — fnDown=\(fnDown) fnIsDown=\(fnIsDown) flags=\(event.flags.rawValue)")
+
+        // Detect fn key press (transition up → down only)
         if fnDown && !fnIsDown {
             fnIsDown = true
             let now = ProcessInfo.processInfo.systemUptime
-            if now - lastFnPressTime < doubleTapInterval {
+            let delta = now - lastFnPressTime
+            NSLog("DictationApp: fn DOWN — delta=\(String(format: "%.3f", delta))s interval=\(doubleTapInterval)s")
+            if delta < doubleTapInterval {
                 lastFnPressTime = 0
-                DispatchQueue.main.async { [weak self] in
-                    self?.onDoubleTap?()
-                }
-                // Consume event so macOS Dictation doesn't fire
-                return nil
+                fnIsDown = false  // reset so next double-tap tracks correctly
+                NSLog("DictationApp: double-tap detected → firing onDoubleTap")
+                DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
             } else {
                 lastFnPressTime = now
             }
         } else if !fnDown {
+            NSLog("DictationApp: fn UP")
             fnIsDown = false
         }
 

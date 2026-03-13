@@ -19,6 +19,7 @@ class DictationViewModel: ObservableObject {
     private let wakeWordMonitor = WakeWordMonitor()
     private var transcriptionTask: Task<Void, Never>?
     private var streamingTask: Task<Void, Never>?
+    private var finalStreamingTask: Task<Void, Never>?
 
     // Streaming: accumulated committed text + current chunk pointer.
     // Small model commits chunks during recording as a live preview.
@@ -26,6 +27,11 @@ class DictationViewModel: ObservableObject {
     private var committedText: String = ""
     private var committedSampleIndex: Int = 0
     private let chunkSeconds = 7
+
+    // Progressive large-v3 tracking: processes same committed chunks in background.
+    // When recording stops, only the remaining unprocessed tail needs final transcription.
+    private var finalCommittedText: String = ""
+    private var finalCommittedSampleIndex: Int = 0
 
     init() {
         wakeWordMonitor.onWakeWord = { [weak self] in
@@ -88,6 +94,8 @@ class DictationViewModel: ObservableObject {
         guard state == .recording || state == .transcribing else { return }
         streamingTask?.cancel()
         streamingTask = nil
+        finalStreamingTask?.cancel()
+        finalStreamingTask = nil
         transcriptionTask?.cancel()
         transcriptionTask = nil
         recorder.onRecordingFinished = { url in try? FileManager.default.removeItem(at: url) }
@@ -109,6 +117,7 @@ class DictationViewModel: ObservableObject {
             let cursor = NSEvent.mouseLocation
             hud.show(state: .recording, near: cursor)
             startStreamingLoop()
+            startFinalStreamingLoop()
         } catch {
             errorMessage = "Microphone error: \(error.localizedDescription)"
             if isWakeWordEnabled { wakeWordMonitor.start() }
@@ -118,16 +127,84 @@ class DictationViewModel: ObservableObject {
     private func stopRecording() {
         streamingTask?.cancel()
         streamingTask = nil
+        finalStreamingTask?.cancel()
+        finalStreamingTask = nil
         state = .transcribing
         hud.update(state: .transcribing)
 
-        // Final transcription uses the WAV file via large-v3 (or small if not ready yet).
-        // Large-v3 correctly handles PT/EN/ES code-switching.
+        // Snapshot streaming text now — used as fallback if final transcription times out.
+        let fallback = committedText
+
+        // Capture large-v3 progress and full sample buffer before stopping the recorder.
+        let progressText = finalCommittedText
+        let progressIdx = finalCommittedSampleIndex
+        let (samplesAtStop, _) = recorder.currentSamples
+
         recorder.onRecordingFinished = { [weak self] url in
-            self?.finalizeTranscription(url: url)
+            self?.finalizeTranscription(url: url, fallback: fallback,
+                                        finalProgressText: progressText,
+                                        finalProgressIdx: progressIdx,
+                                        samplesAtStop: samplesAtStop)
         }
         recorder.stopRecording()
         resetStreamingState()
+    }
+
+    // MARK: - Final streaming loop (large-v3, background during recording)
+    //
+    // Mirrors the small-model committed chunks but processes them with large-v3.
+    // When recording stops, only the unprocessed tail needs final transcription.
+
+    private func startFinalStreamingLoop() {
+        let manager = transcriptionManager
+        let chunk = chunkSeconds
+
+        finalStreamingTask = Task.detached(priority: .background) { [weak self] in
+            // Wait up to 60s for large-v3 to finish loading.
+            var waitAttempts = 0
+            while !Task.isCancelled && waitAttempts < 60 {
+                if await manager.isFinalModelReady { break }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                waitAttempts += 1
+            }
+            guard !Task.isCancelled else { return }
+            let finalReady = await manager.isFinalModelReady
+            guard finalReady else { return }
+            NSLog("DictationApp: final streaming loop started — large-v3 ready")
+
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { break }
+                guard let self else { break }
+
+                let (allSamples, sampleRate) = await self.samplesSnapshot()
+                let smallCommittedIdx = await self.committedSampleIndex
+                let finalIdx = await self.finalCommittedSampleIndex
+                let finalText = await self.finalCommittedText
+
+                let chunkSize = Int(sampleRate) * chunk
+                let safeIdx = min(finalIdx, allSamples.count)
+                let available = smallCommittedIdx - safeIdx
+
+                guard available >= chunkSize else { continue }
+
+                let endIdx = min(safeIdx + chunkSize, allSamples.count)
+                let chunkSamples = Array(allSamples[safeIdx..<endIdx])
+                guard chunkSamples.count >= chunkSize else { continue }
+
+                NSLog("DictationApp: final loop — transcribing chunk [\(safeIdx)..<\(endIdx)] samples with large-v3")
+                let chunkFinalText = await manager.transcribeSamplesFinal(chunkSamples)
+
+                guard !Task.isCancelled else { break }
+                await MainActor.run {
+                    if !chunkFinalText.isEmpty {
+                        self.finalCommittedText = finalText.isEmpty ? chunkFinalText : finalText + " " + chunkFinalText
+                    }
+                    self.finalCommittedSampleIndex = endIdx
+                    NSLog("DictationApp: final loop committed chunk, idx=\(endIdx), text='\(chunkFinalText.prefix(40))'")
+                }
+            }
+        }
     }
 
     // MARK: - Streaming loop (small model, live preview during recording)
@@ -193,7 +270,10 @@ class DictationViewModel: ObservableObject {
     // Replaces the streaming preview with the accurate multilingual result.
     // Large-v3 correctly preserves code-switching (PT/EN/ES).
 
-    private func finalizeTranscription(url: URL) {
+    private func finalizeTranscription(url: URL, fallback: String,
+                                        finalProgressText: String = "",
+                                        finalProgressIdx: Int = 0,
+                                        samplesAtStop: [Float] = []) {
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
         guard fileSize > 0 else {
             errorMessage = "Recording was empty"
@@ -204,29 +284,52 @@ class DictationViewModel: ObservableObject {
 
         let manager = transcriptionManager
         transcriptionTask = Task.detached(priority: .userInitiated) { [weak self] in
-            do {
-                let text = try await manager.transcribeFinal(url: url)
-                await MainActor.run {
-                    if text.isEmpty {
-                        self?.errorMessage = "No speech detected"
+            // Race transcription against a 20s timeout.
+            // If it times out, use the streaming preview text as result.
+            let text: String = await withTaskGroup(of: String?.self) { group in
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 20_000_000_000)
+                    return nil  // timeout sentinel
+                }
+                group.addTask {
+                    // If large-v3 pre-processed chunks during recording,
+                    // only transcribe the unprocessed tail — much faster for long recordings.
+                    if finalProgressIdx > 0 && finalProgressIdx < samplesAtStop.count {
+                        let remainderSamples = Array(samplesAtStop[finalProgressIdx...])
+                        NSLog("DictationApp: finalizing with pre-processed \(finalProgressIdx) samples, remainder=\(remainderSamples.count) samples")
+                        if remainderSamples.isEmpty { return finalProgressText }
+                        let remainderText = await manager.transcribeSamplesFinal(remainderSamples)
+                        if finalProgressText.isEmpty { return remainderText }
+                        if remainderText.isEmpty { return finalProgressText }
+                        return finalProgressText + " " + remainderText
                     } else {
-                        self?.transcribedText = text
-                        self?.addToHistory(text)
-                        self?.copyToClipboard(text)
-                        self?.pasteIntoFocusedApp()
-                        self?.errorMessage = nil
+                        // No pre-processing — full transcription as before.
+                        NSLog("DictationApp: finalizing — no pre-processed chunks, full large-v3 transcription")
+                        return try? await manager.transcribeFinal(url: url)
                     }
-                    self?.state = .idle
-                    self?.hud.hide()
-                    if self?.isWakeWordEnabled == true { self?.wakeWordMonitor.start() }
                 }
-            } catch {
-                await MainActor.run {
-                    self?.errorMessage = "Transcription failed: \(error.localizedDescription)"
-                    self?.state = .idle
-                    self?.hud.hide()
-                    if self?.isWakeWordEnabled == true { self?.wakeWordMonitor.start() }
+                // Take whichever finishes first
+                for await result in group {
+                    group.cancelAll()
+                    if let result { return result }  // transcription finished in time
+                    return fallback                   // timeout — use streaming preview
                 }
+                return fallback
+            }
+
+            await MainActor.run {
+                if text.isEmpty {
+                    self?.errorMessage = "No speech detected"
+                } else {
+                    self?.transcribedText = text
+                    self?.addToHistory(text)
+                    self?.copyToClipboard(text)
+                    self?.pasteIntoFocusedApp()
+                    self?.errorMessage = nil
+                }
+                self?.state = .idle
+                self?.hud.hide()
+                if self?.isWakeWordEnabled == true { self?.wakeWordMonitor.start() }
             }
             try? FileManager.default.removeItem(at: url)
         }
@@ -237,6 +340,8 @@ class DictationViewModel: ObservableObject {
     private func resetStreamingState() {
         committedText = ""
         committedSampleIndex = 0
+        finalCommittedText = ""
+        finalCommittedSampleIndex = 0
     }
 
     private func samplesSnapshot() -> ([Float], Double) {

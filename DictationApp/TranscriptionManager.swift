@@ -48,6 +48,15 @@ actor TranscriptionManager {
         return joinSegments(results.compactMap { $0 }.flatMap { $0 })
     }
 
+    // Final accurate transcription from raw samples (used for partial/remainder transcription).
+    // Uses large-v3 if loaded, falls back to small.
+    func transcribeSamplesFinal(_ samples: [Float]) async -> String {
+        let kit = finalKit ?? streamingKit
+        guard let kit else { return "" }
+        let results = await kit.transcribe(audioArrays: [samples], decodeOptions: decodingOptions)
+        return joinSegments(results.compactMap { $0 }.flatMap { $0 })
+    }
+
     // Final accurate transcription from WAV file.
     // Uses large-v3 if loaded, falls back to small. Large-v3 handles code-switching correctly.
     func transcribeFinal(url: URL) async throws -> String {
