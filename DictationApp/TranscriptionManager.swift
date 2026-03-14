@@ -1,74 +1,117 @@
 import WhisperKit
 import Foundation
 
-// Actor ensures transcription calls are serialized — no concurrent WhisperKit access.
-actor TranscriptionManager {
+// Two independent actors — one per model.
+// This prevents large-v3 (slow) from blocking the small model (fast streaming).
 
-    // whisper-small: loads fast, ~5-10x real-time. Used for live preview during recording.
-    private var streamingKit: WhisperKit?
+actor StreamingTranscriber {
+    private var kit: WhisperKit?
 
-    // whisper-large-v3: loads in background. Used for final accurate transcription.
-    // Handles code-switching (PT/EN/ES mixed) correctly. Falls back to small if not ready.
-    private var finalKit: WhisperKit?
-    private(set) var isFinalModelReady = false
+    func load() async throws {
+        kit = try await WhisperKit(model: "openai_whisper-small")
+    }
 
-    func loadModels() async throws {
-        // 1. Load small first — user can start recording within seconds.
-        streamingKit = try await WhisperKit(model: "openai_whisper-small")
+    var isReady: Bool { kit != nil }
 
-        // 2. Load large-v3 in the background. Actor re-entrance means other calls
-        //    (transcribeSamples) proceed normally while this is awaiting.
-        Task {
-            do {
-                let kit = try await WhisperKit(model: "openai_whisper-large-v3")
-                self.finalKit = kit
-                self.isFinalModelReady = true
-            } catch {
-                // Non-fatal: will use small for final transcription.
-            }
-        }
+    func transcribe(_ samples: [Float]) async -> String {
+        guard let kit else { return "" }
+        let results = await kit.transcribe(audioArrays: [samples], decodeOptions: decodingOptions)
+        return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
     }
 
     private var decodingOptions: DecodingOptions {
-        DecodingOptions(
-            task: .transcribe,
-            language: nil,
-            temperature: 0.0,
-            usePrefillPrompt: true,
-            detectLanguage: true,
-            noSpeechThreshold: 0.3
-        )
+        DecodingOptions(task: .transcribe, language: nil, temperature: 0.0,
+                        usePrefillPrompt: true, detectLanguage: true, noSpeechThreshold: 0.3)
+    }
+}
+
+actor FinalTranscriber {
+    private var kit: WhisperKit?
+    private(set) var isReady = false
+
+    func load() async {
+        do {
+            kit = try await WhisperKit(model: "openai_whisper-large-v3")
+            isReady = true
+        } catch {
+            // Non-fatal: ViewModel falls back to small model.
+            NSLog("DictationApp: large-v3 failed to load — \(error)")
+        }
     }
 
-    // Fast streaming transcription using whisper-small.
-    // Samples must be 16kHz (AudioRecorder resamples before buffering).
     func transcribeSamples(_ samples: [Float]) async -> String {
-        guard let kit = streamingKit else { return "" }
-        let results = await kit.transcribe(audioArrays: [samples], decodeOptions: decodingOptions)
-        return joinSegments(results.compactMap { $0 }.flatMap { $0 })
-    }
-
-    // Final accurate transcription from raw samples (used for partial/remainder transcription).
-    // Uses large-v3 if loaded, falls back to small.
-    func transcribeSamplesFinal(_ samples: [Float]) async -> String {
-        let kit = finalKit ?? streamingKit
         guard let kit else { return "" }
         let results = await kit.transcribe(audioArrays: [samples], decodeOptions: decodingOptions)
-        return joinSegments(results.compactMap { $0 }.flatMap { $0 })
+        return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
     }
 
-    // Final accurate transcription from WAV file.
-    // Uses large-v3 if loaded, falls back to small. Large-v3 handles code-switching correctly.
-    func transcribeFinal(url: URL) async throws -> String {
-        let kit = finalKit ?? streamingKit
+    func transcribeFile(url: URL) async throws -> String {
         guard let kit else { throw TranscriptionError.notLoaded }
         let results = await kit.transcribe(audioPaths: [url.path], decodeOptions: decodingOptions)
-        return joinSegments(results.compactMap { $0 }.flatMap { $0 })
+        return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
     }
 
-    // MARK: - Text cleanup
+    private var decodingOptions: DecodingOptions {
+        DecodingOptions(task: .transcribe, language: nil, temperature: 0.0,
+                        usePrefillPrompt: true, detectLanguage: true, noSpeechThreshold: 0.3)
+    }
+}
 
-    private func joinSegments(_ results: [TranscriptionResult]) -> String {
+// Thin facade — ViewModel talks to this, not to the two actors directly.
+class TranscriptionManager {
+    let streaming = StreamingTranscriber()
+    let final_ = FinalTranscriber()
+
+    var isFinalModelReady: Bool {
+        get async { await final_.isReady }
+    }
+
+    func loadModels() async throws {
+        try await streaming.load()
+        Task.detached(priority: .background) { [weak self] in
+            await self?.final_.load()
+        }
+    }
+
+    func transcribeSamples(_ samples: [Float]) async -> String {
+        await streaming.transcribe(samples)
+    }
+
+    func transcribeSamplesFinal(_ samples: [Float]) async -> String {
+        if await final_.isReady {
+            return await final_.transcribeSamples(samples)
+        }
+        return await streaming.transcribe(samples)
+    }
+
+    func transcribeFinal(url: URL) async throws -> String {
+        if await final_.isReady {
+            return try await final_.transcribeFile(url: url)
+        }
+        // large-v3 not ready — load audio manually and use small model
+        let audioData = try Data(contentsOf: url)
+        let samples = Self.pcmSamples(from: audioData)
+        return await streaming.transcribe(samples)
+    }
+
+    // Minimal WAV PCM extractor for fallback path (16-bit LE, mono/stereo → mono).
+    private static func pcmSamples(from data: Data) -> [Float] {
+        guard data.count > 44 else { return [] }
+        let body = data.subdata(in: 44..<data.count)
+        var samples = [Float]()
+        samples.reserveCapacity(body.count / 2)
+        body.withUnsafeBytes { ptr in
+            let shorts = ptr.bindMemory(to: Int16.self)
+            for s in shorts { samples.append(Float(s) / 32768.0) }
+        }
+        return samples
+    }
+}
+
+// MARK: - Text cleanup (shared between both actors)
+
+enum TextCleaner {
+    static func clean(_ results: [TranscriptionResult]) -> String {
         let segments = results.flatMap { $0.segments }
         var parts: [String] = []
 
@@ -87,7 +130,7 @@ actor TranscriptionManager {
         return stripHallucinations(joined)
     }
 
-    private func stripWhisperTokens(_ text: String) -> String {
+    private static func stripWhisperTokens(_ text: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: "<\\|[^|]*\\|>") else { return text }
         let range = NSRange(text.startIndex..., in: text)
         return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
@@ -100,9 +143,9 @@ actor TranscriptionManager {
         "transcribed by", "obrigado", "obrigada", "obrigado.", "obrigada.",
     ]
 
-    private func stripHallucinations(_ text: String) -> String {
+    private static func stripHallucinations(_ text: String) -> String {
         var result = text
-        for phrase in Self.hallucinations {
+        for phrase in hallucinations {
             let lower = result.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             if lower == phrase { return "" }
             if lower.hasSuffix(" " + phrase) || lower.hasSuffix(". " + phrase) {

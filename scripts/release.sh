@@ -35,6 +35,9 @@ echo "==> Installing locally to /Applications..."
 rm -rf "/Applications/${APP_NAME}.app"
 cp -R "${APP_PATH}" "/Applications/${APP_NAME}.app"
 
+echo "==> Signing with local certificate (keeps Accessibility permission)..."
+codesign -f -s "34A488E1BA65A57C8D37EC51E342923ACA9D891C" --deep "/Applications/${APP_NAME}.app"
+
 echo "==> Committing version bump..."
 git add "${APP_NAME}/Info.plist"
 git commit -m "Bump version to ${VERSION}"
