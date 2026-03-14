@@ -127,7 +127,64 @@ enum TextCleaner {
             parts.append(text)
         }
         let joined = parts.joined(separator: " ").trimmingCharacters(in: .whitespaces)
-        return stripHallucinations(joined)
+        let dehalluced = stripHallucinations(joined)
+        return applyPunctuationCommands(dehalluced)
+    }
+
+    // Converts spoken punctuation words into symbols.
+    // Longer phrases must appear before shorter ones to avoid partial matches.
+    private static let punctuationCommands: [(word: String, symbol: String)] = [
+        ("ponto de interrogação", "?"),
+        ("ponto de exclamação", "!"),
+        ("ponto e vírgula", ";"),
+        ("ponto final", "."),
+        ("dois pontos", ":"),
+        ("nova linha", "\n"),
+        ("parágrafo", "\n\n"),
+        ("reticências", "..."),
+        ("interrogação", "?"),
+        ("exclamação", "!"),
+        ("vírgula", ","),
+        ("question mark", "?"),
+        ("exclamation mark", "!"),
+        ("semicolon", ";"),
+        ("comma", ","),
+        ("colon", ":"),
+        ("period", "."),
+        ("dot", "."),
+    ]
+
+    private static func applyPunctuationCommands(_ text: String) -> String {
+        var result = text
+        for (word, symbol) in punctuationCommands {
+            let escaped = NSRegularExpression.escapedPattern(for: word)
+            // preceded by space (or start), followed by space or end
+            let pattern = "(?i)(^|\\s)\(escaped)(?=\\s|$)"
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(result.startIndex..., in: result)
+            // replacement keeps no leading space — punctuation attaches to previous word
+            result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: symbol)
+        }
+        // Capitalize first letter after sentence-ending punctuation
+        result = capitalizeAfterSentenceEnd(result)
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func capitalizeAfterSentenceEnd(_ text: String) -> String {
+        var chars = Array(text)
+        var capitalizeNext = false
+        for i in chars.indices {
+            let c = chars[i]
+            if c == "." || c == "?" || c == "!" {
+                capitalizeNext = true
+            } else if capitalizeNext && c != " " && c != "\n" {
+                chars[i] = Character(c.uppercased())
+                capitalizeNext = false
+            } else if c != " " && c != "\n" {
+                capitalizeNext = false
+            }
+        }
+        return String(chars)
     }
 
     private static func stripWhisperTokens(_ text: String) -> String {
