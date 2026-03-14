@@ -26,7 +26,10 @@ xcodebuild -scheme "${APP_NAME}" -configuration Release \
 
 APP_PATH="${PROJECT_DIR}/build/Build/Products/Release/${APP_NAME}.app"
 
-echo "==> Zipping..."
+echo "==> Signing with local certificate..."
+codesign -f -s "34A488E1BA65A57C8D37EC51E342923ACA9D891C" --deep "${APP_PATH}"
+
+echo "==> Zipping (signed app)..."
 cd "${PROJECT_DIR}/build/Build/Products/Release"
 zip -qr "${PROJECT_DIR}/${ZIP_NAME}" "${APP_NAME}.app"
 cd "${PROJECT_DIR}"
@@ -34,9 +37,6 @@ cd "${PROJECT_DIR}"
 echo "==> Installing locally to /Applications..."
 rm -rf "/Applications/${APP_NAME}.app"
 cp -R "${APP_PATH}" "/Applications/${APP_NAME}.app"
-
-echo "==> Signing with local certificate (keeps Accessibility permission)..."
-codesign -f -s "34A488E1BA65A57C8D37EC51E342923ACA9D891C" --deep "/Applications/${APP_NAME}.app"
 
 echo "==> Committing version bump..."
 git add "${APP_NAME}/Info.plist"
