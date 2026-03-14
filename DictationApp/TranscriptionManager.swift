@@ -159,10 +159,10 @@ enum TextCleaner {
         for (word, symbol) in punctuationCommands {
             let escaped = NSRegularExpression.escapedPattern(for: word)
             // preceded by space (or start), followed by space or end
-            let pattern = "(?i)(^|\\s)\(escaped)(?=\\s|$)"
+            // Also eat any auto-punctuation the model added right after the word (e.g. "Interrogação.")
+            let pattern = "(?i)(^|\\s)\(escaped)[.,!?;:]*(?=[\\s.,!?;:]|$)"
             guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
             let range = NSRange(result.startIndex..., in: result)
-            // replacement keeps no leading space — punctuation attaches to previous word
             result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: symbol)
         }
         // Capitalize first letter after sentence-ending punctuation
