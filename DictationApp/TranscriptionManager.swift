@@ -29,13 +29,26 @@ actor FinalTranscriber {
     private var kit: WhisperKit?
     private(set) var isReady = false
 
+    // batchKit uses large-v3-turbo: much faster for long files, similar accuracy.
+    private var batchKit: WhisperKit?
+    private(set) var isBatchReady = false
+
     func load() async {
         do {
             kit = try await WhisperKit(model: "openai_whisper-large-v3")
             isReady = true
+            NSLog("DictationApp: large-v3 ready")
         } catch {
-            // Non-fatal: ViewModel falls back to small model.
             NSLog("DictationApp: large-v3 failed to load — \(error)")
+        }
+        do {
+            batchKit = try await WhisperKit(model: "openai_whisper-large-v3-turbo")
+            isBatchReady = true
+            NSLog("DictationApp: large-v3-turbo ready for batch")
+        } catch {
+            NSLog("DictationApp: large-v3-turbo failed, will use large-v3 for batch — \(error)")
+            batchKit = kit  // fallback
+            isBatchReady = isReady
         }
     }
 
@@ -52,18 +65,19 @@ actor FinalTranscriber {
     }
 
     // Returns raw segments with timestamps — used by BatchTranscriber.
-    // onProgress is called as segments are discovered, with the latest end time in seconds.
+    // Uses large-v3-turbo for speed. Falls back to large-v3 or small.
     func transcribeWithSegments(url: URL, onProgress: ((Float) -> Void)? = nil) async throws -> [TranscriptionSegment] {
-        guard let kit else { throw TranscriptionError.notLoaded }
+        let activeKit = batchKit ?? kit
+        guard let activeKit else { throw TranscriptionError.notLoaded }
         if let onProgress {
-            kit.segmentDiscoveryCallback = { segments in
+            activeKit.segmentDiscoveryCallback = { segments in
                 if let lastEnd = segments.last?.end {
                     onProgress(lastEnd)
                 }
             }
         }
-        let results = await kit.transcribe(audioPaths: [url.path], decodeOptions: decodingOptions)
-        kit.segmentDiscoveryCallback = nil
+        let results = await activeKit.transcribe(audioPaths: [url.path], decodeOptions: decodingOptions)
+        activeKit.segmentDiscoveryCallback = nil
         return results.compactMap { $0 }.flatMap { $0 }.flatMap { $0.segments }
     }
 
