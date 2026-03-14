@@ -15,7 +15,8 @@ class BatchTranscriber {
     var onComplete: ((Int, Int) -> Void)?  // done, total
 
     private static let audioExtensions: Set<String> = [
-        "mp3", "m4a", "wav", "aac", "flac", "ogg", "opus", "aiff", "caf"
+        "mp3", "m4a", "wav", "aac", "flac", "ogg", "opus", "aiff", "caf",
+        "mp4", "mov", "m4v"
     ]
 
     // MARK: - Public
