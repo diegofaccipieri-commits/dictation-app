@@ -1,6 +1,7 @@
 import Foundation
 import WhisperKit
 import AppKit
+import AVFoundation
 
 // Batch transcribes audio files in a folder using large-v3.
 // Each file gets a .txt with timestamps and basic speaker diarization.
@@ -55,10 +56,10 @@ class BatchTranscriber {
             guard !Task.isCancelled else { break }
 
             let name = file.lastPathComponent
-            await notify("Transcrevendo \(done + 1)/\(total): \(name)")
+            let duration = audioDuration(file)
 
             do {
-                let segments = try await transcribeFile(file, transcriber: transcriber)
+                let segments = try await transcribeFile(file, duration: duration, fileIndex: done + 1, total: total, transcriber: transcriber)
                 let txt = format(segments: segments, sourceFile: file)
                 let output = file.deletingPathExtension().appendingPathExtension("txt")
                 try txt.write(to: output, atomically: true, encoding: .utf8)
@@ -75,9 +76,20 @@ class BatchTranscriber {
         }
     }
 
-    private func transcribeFile(_ url: URL, transcriber: FinalTranscriber) async throws -> [TranscriptionSegment] {
-        let results = try await transcriber.transcribeWithSegments(url: url)
-        return results
+    private func transcribeFile(_ url: URL, duration: Double, fileIndex: Int, total: Int, transcriber: FinalTranscriber) async throws -> [TranscriptionSegment] {
+        let name = url.lastPathComponent
+        await notify("Transcrevendo \(fileIndex)/\(total): \(name) — 0%")
+        return try await transcriber.transcribeWithSegments(url: url) { [weak self] seekTime in
+            guard let self, duration > 0 else { return }
+            let pct = min(Int((Double(seekTime) / duration) * 100), 99)
+            Task { await self.notify("Transcrevendo \(fileIndex)/\(total): \(name) — \(pct)%") }
+        }
+    }
+
+    private func audioDuration(_ url: URL) -> Double {
+        let asset = AVURLAsset(url: url)
+        let duration = asset.duration
+        return CMTimeGetSeconds(duration)
     }
 
     // MARK: - Speaker diarization (pause-based)

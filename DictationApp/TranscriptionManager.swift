@@ -52,9 +52,16 @@ actor FinalTranscriber {
     }
 
     // Returns raw segments with timestamps — used by BatchTranscriber.
-    func transcribeWithSegments(url: URL) async throws -> [TranscriptionSegment] {
+    // onProgress is called after each chunk with the current seek time in seconds.
+    func transcribeWithSegments(url: URL, onProgress: ((Float) -> Void)? = nil) async throws -> [TranscriptionSegment] {
         guard let kit else { throw TranscriptionError.notLoaded }
-        let results = await kit.transcribe(audioPaths: [url.path], decodeOptions: decodingOptions)
+        let callback: TranscriptionCallback = { progress in
+            // windowId is the chunk index; each chunk is ~30s of audio
+            let estimatedSeconds = Float(progress.windowId) * 30.0
+            onProgress?(estimatedSeconds)
+            return true  // continue decoding
+        }
+        let results = await kit.transcribe(audioPaths: [url.path], decodeOptions: decodingOptions, callback: callback)
         return results.compactMap { $0 }.flatMap { $0 }.flatMap { $0.segments }
     }
 
