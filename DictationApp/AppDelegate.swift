@@ -111,6 +111,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let batchItem = NSMenuItem(title: "Transcrever Pasta…", action: #selector(startBatchTranscription), keyEquivalent: "")
+        batchItem.target = self
+        menu.addItem(batchItem)
+
+        menu.addItem(.separator())
+
         let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
         menu.addItem(updateItem)
@@ -125,6 +131,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil  // remove after showing so left-click still works
+    }
+
+    @objc func startBatchTranscription() {
+        let panel = NSOpenPanel()
+        panel.title = "Selecionar pasta com gravações"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+
+        let batch = BatchTranscriber.shared
+        guard !batch.isRunning else {
+            notify(title: "Transcrição em lote", message: "Já está rodando. Aguarde.")
+            return
+        }
+
+        batch.onProgress = { [weak self] msg in
+            self?.statusItem?.button?.toolTip = msg
+        }
+        batch.onComplete = { [weak self] (done: Int, total: Int) in
+            self?.statusItem?.button?.toolTip = nil
+            self?.notify(title: "Transcrição concluída", message: "\(done) de \(total) arquivo(s) transcritos.")
+        }
+
+        batch.start(folder: folder, transcriber: viewModel.finalTranscriber)
+        notify(title: "Transcrição em lote iniciada", message: "Processando arquivos em background…")
+    }
+
+    private func notify(title: String, message: String) {
+        let n = NSUserNotification()
+        n.title = title
+        n.informativeText = message
+        NSUserNotificationCenter.default.deliver(n)
     }
 
     @objc func checkForUpdates() {

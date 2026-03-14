@@ -51,6 +51,13 @@ actor FinalTranscriber {
         return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
     }
 
+    // Returns raw segments with timestamps — used by BatchTranscriber.
+    func transcribeWithSegments(url: URL) async throws -> [TranscriptionSegment] {
+        guard let kit else { throw TranscriptionError.notLoaded }
+        let results = await kit.transcribe(audioPaths: [url.path], decodeOptions: decodingOptions)
+        return results.compactMap { $0 }.flatMap { $0 }.flatMap { $0.segments }
+    }
+
     private var decodingOptions: DecodingOptions {
         DecodingOptions(task: .transcribe, language: nil, temperature: 0.0,
                         usePrefillPrompt: true, detectLanguage: true, noSpeechThreshold: 0.3)

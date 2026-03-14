@@ -15,6 +15,7 @@ class DictationViewModel: ObservableObject {
 
     private let recorder = AudioRecorder()
     private let transcriptionManager = TranscriptionManager()
+    var finalTranscriber: FinalTranscriber { transcriptionManager.final_ }
     private let hud = DictationHUD()
     private let wakeWordMonitor = WakeWordMonitor()
     private var transcriptionTask: Task<Void, Never>?
