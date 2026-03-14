@@ -24,9 +24,16 @@ class BatchTranscriber {
     func start(folder: URL, transcriber: FinalTranscriber) {
         guard !isRunning else { return }
         isRunning = true
-
         task = Task.detached(priority: .background) { [weak self] in
-            await self?.process(folder: folder, transcriber: transcriber)
+            await self?.process(files: self?.audioFiles(in: folder) ?? [], transcriber: transcriber)
+        }
+    }
+
+    func startSingleFile(file: URL, transcriber: FinalTranscriber) {
+        guard !isRunning else { return }
+        isRunning = true
+        task = Task.detached(priority: .background) { [weak self] in
+            await self?.process(files: [file], transcriber: transcriber)
         }
     }
 
@@ -38,8 +45,7 @@ class BatchTranscriber {
 
     // MARK: - Processing
 
-    private func process(folder: URL, transcriber: FinalTranscriber) async {
-        let files = audioFiles(in: folder)
+    private func process(files: [URL], transcriber: FinalTranscriber) async {
         let total = files.count
         var done = 0
 

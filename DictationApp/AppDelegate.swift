@@ -111,6 +111,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let fileItem = NSMenuItem(title: "Transcrever Arquivo…", action: #selector(startFileTranscription), keyEquivalent: "")
+        fileItem.target = self
+        menu.addItem(fileItem)
+
         let batchItem = NSMenuItem(title: "Transcrever Pasta…", action: #selector(startBatchTranscription), keyEquivalent: "")
         batchItem.target = self
         menu.addItem(batchItem)
@@ -131,6 +135,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil  // remove after showing so left-click still works
+    }
+
+    @objc func startFileTranscription() {
+        let panel = NSOpenPanel()
+        panel.title = "Selecionar arquivo de áudio ou vídeo"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.audio, .video, .mpeg4Movie, .quickTimeMovie]
+
+        guard panel.runModal() == .OK, let file = panel.url else { return }
+
+        let batch = BatchTranscriber.shared
+        guard !batch.isRunning else {
+            notify(title: "Transcrição em andamento", message: "Aguarde terminar antes de iniciar outra.")
+            return
+        }
+
+        batch.onProgress = { [weak self] msg in
+            self?.statusItem?.button?.toolTip = msg
+        }
+        batch.onComplete = { [weak self] (done: Int, _: Int) in
+            self?.statusItem?.button?.toolTip = nil
+            if done > 0 {
+                let output = file.deletingPathExtension().appendingPathExtension("txt")
+                self?.notify(title: "Transcrição concluída", message: output.lastPathComponent)
+                NSWorkspace.shared.selectFile(output.path, inFileViewerRootedAtPath: output.deletingLastPathComponent().path)
+            } else {
+                self?.notify(title: "Transcrição falhou", message: "Verifique o arquivo e tente novamente.")
+            }
+        }
+
+        // Reuse BatchTranscriber passing a temp folder with just this file's parent
+        // but filtering to only this file via a single-file mode.
+        batch.startSingleFile(file: file, transcriber: viewModel.finalTranscriber)
+        notify(title: "Transcrevendo…", message: file.lastPathComponent)
     }
 
     @objc func startBatchTranscription() {
