@@ -22,19 +22,19 @@ class BatchTranscriber {
 
     // MARK: - Public
 
-    func start(folder: URL, transcriber: FinalTranscriber) {
+    func start(folder: URL, transcriber: FinalTranscriber, model: WhisperModel) {
         guard !isRunning else { return }
         isRunning = true
         task = Task.detached(priority: .background) { [weak self] in
-            await self?.process(files: self?.audioFiles(in: folder) ?? [], transcriber: transcriber)
+            await self?.process(files: self?.audioFiles(in: folder) ?? [], transcriber: transcriber, model: model)
         }
     }
 
-    func startSingleFile(file: URL, transcriber: FinalTranscriber) {
+    func startSingleFile(file: URL, transcriber: FinalTranscriber, model: WhisperModel) {
         guard !isRunning else { return }
         isRunning = true
         task = Task.detached(priority: .background) { [weak self] in
-            await self?.process(files: [file], transcriber: transcriber)
+            await self?.process(files: [file], transcriber: transcriber, model: model)
         }
     }
 
@@ -46,7 +46,7 @@ class BatchTranscriber {
 
     // MARK: - Processing
 
-    private func process(files: [URL], transcriber: FinalTranscriber) async {
+    private func process(files: [URL], transcriber: FinalTranscriber, model: WhisperModel) async {
         let total = files.count
         var done = 0
 
@@ -59,7 +59,7 @@ class BatchTranscriber {
             let duration = audioDuration(file)
 
             do {
-                let segments = try await transcribeFile(file, duration: duration, fileIndex: done + 1, total: total, transcriber: transcriber)
+                let segments = try await transcribeFile(file, duration: duration, fileIndex: done + 1, total: total, transcriber: transcriber, model: model)
                 let txt = format(segments: segments, sourceFile: file)
                 let output = file.deletingPathExtension().appendingPathExtension("txt")
                 try txt.write(to: output, atomically: true, encoding: .utf8)
@@ -76,13 +76,13 @@ class BatchTranscriber {
         }
     }
 
-    private func transcribeFile(_ url: URL, duration: Double, fileIndex: Int, total: Int, transcriber: FinalTranscriber) async throws -> [TranscriptionSegment] {
+    private func transcribeFile(_ url: URL, duration: Double, fileIndex: Int, total: Int, transcriber: FinalTranscriber, model: WhisperModel) async throws -> [TranscriptionSegment] {
         let name = url.lastPathComponent
-        await notify("Transcrevendo \(fileIndex)/\(total): \(name) — 0%")
-        return try await transcriber.transcribeWithSegments(url: url) { [weak self] seekTime in
+        await notify("Transcrevendo \(fileIndex)/\(total): \(name) [\(model.displayName)] — 0%")
+        return try await transcriber.transcribeWithSegments(url: url, model: model) { [weak self] seekTime in
             guard let self, duration > 0 else { return }
             let pct = min(Int((Double(seekTime) / duration) * 100), 99)
-            Task { await self.notify("Transcrevendo \(fileIndex)/\(total): \(name) — \(pct)%") }
+            Task { await self.notify("Transcrevendo \(fileIndex)/\(total): \(name) [\(model.displayName)] — \(pct)%") }
         }
     }
 

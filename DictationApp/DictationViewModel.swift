@@ -13,6 +13,8 @@ class DictationViewModel: ObservableObject {
     @Published var history: [String] = (UserDefaults.standard.array(forKey: "transcriptionHistory") as? [String]) ?? []
     @Published var isWakeWordEnabled: Bool = UserDefaults.standard.bool(forKey: "wakeWordEnabled")
     @Published var batchStatus: String? = nil
+    @Published var liveModel: WhisperModel = WhisperModel(rawValue: UserDefaults.standard.string(forKey: "liveModel") ?? "") ?? .defaultLive
+    @Published var batchModel: WhisperModel = WhisperModel(rawValue: UserDefaults.standard.string(forKey: "batchModel") ?? "") ?? .defaultBatch
 
     private let recorder = AudioRecorder()
     private let transcriptionManager = TranscriptionManager()
@@ -39,7 +41,7 @@ class DictationViewModel: ObservableObject {
             NSLog("DictationApp: recording interrupted — finalizing with captured audio")
             self.stopRecording()
         }
-        Task { await self.loadModels() }
+        Task { await self.loadModels(liveModel: liveModel, batchModel: batchModel) }
     }
 
     func setWakeWord(enabled: Bool) {
@@ -55,10 +57,22 @@ class DictationViewModel: ObservableObject {
         }
     }
 
-    private func loadModels() async {
+    func setLiveModel(_ model: WhisperModel) {
+        liveModel = model
+        UserDefaults.standard.set(model.rawValue, forKey: "liveModel")
+        Task { await transcriptionManager.updateModels(liveModel: model, batchModel: batchModel) }
+    }
+
+    func setBatchModel(_ model: WhisperModel) {
+        batchModel = model
+        UserDefaults.standard.set(model.rawValue, forKey: "batchModel")
+        Task { await transcriptionManager.updateModels(liveModel: liveModel, batchModel: model) }
+    }
+
+    private func loadModels(liveModel: WhisperModel = .defaultLive, batchModel: WhisperModel = .defaultBatch) async {
         isModelLoading = true
         do {
-            try await transcriptionManager.loadModels()
+            try await transcriptionManager.loadModels(liveModel: liveModel, batchModel: batchModel)
             isModelLoaded = true
             Task.detached(priority: .background) { [weak self] in
                 while true {

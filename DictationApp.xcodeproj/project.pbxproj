@@ -23,6 +23,7 @@
 		E26CEF7EE43878A9BF34BED9 /* RecordingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */; };
 		FA99BB11CC22DD33EE44FF55 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB11CC22DD33EE44FF5599AA /* UpdateChecker.swift */; };
 		AB12CD34EF56AB78CD90EF12 /* BatchTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD34EF56AB78CD90EF12AB34 /* BatchTranscriber.swift */; };
+		EF12AB34CD56EF78AB90CD12 /* WhisperModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB34CD56EF78AB90CD12EF34 /* WhisperModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +42,7 @@
 		AE1290CAE439A7561A41F669 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		BB11CC22DD33EE44FF5599AA /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		CD34EF56AB78CD90EF12AB34 /* BatchTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTranscriber.swift; sourceTree = "<group>"; };
+		AB34CD56EF78AB90CD12EF34 /* WhisperModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperModel.swift; sourceTree = "<group>"; };
 		C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordMonitor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -82,6 +84,7 @@
 				010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */,
 				BB11CC22DD33EE44FF5599AA /* UpdateChecker.swift */,
 				CD34EF56AB78CD90EF12AB34 /* BatchTranscriber.swift */,
+				AB34CD56EF78AB90CD12EF34 /* WhisperModel.swift */,
 				C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */,
 			);
 			path = DictationApp;
@@ -181,6 +184,7 @@
 				D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */,
 				FA99BB11CC22DD33EE44FF55 /* UpdateChecker.swift in Sources */,
 				AB12CD34EF56AB78CD90EF12 /* BatchTranscriber.swift in Sources */,
+				EF12AB34CD56EF78AB90CD12 /* WhisperModel.swift in Sources */,
 				812119C11B13B90BFE27BF83 /* WakeWordMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

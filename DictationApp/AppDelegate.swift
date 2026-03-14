@@ -169,7 +169,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        batch.startSingleFile(file: file, transcriber: viewModel.finalTranscriber)
+        batch.startSingleFile(file: file, transcriber: viewModel.finalTranscriber, model: viewModel.batchModel)
         viewModel.batchStatus = "Iniciando: \(file.lastPathComponent)"
         statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
     }
@@ -199,7 +199,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.notify(title: "Transcrição concluída", message: "\(done) de \(total) arquivo(s) transcritos.")
         }
 
-        batch.start(folder: folder, transcriber: viewModel.finalTranscriber)
+        batch.start(folder: folder, transcriber: viewModel.finalTranscriber, model: viewModel.batchModel)
         viewModel.batchStatus = "Iniciando lote…"
         statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
     }

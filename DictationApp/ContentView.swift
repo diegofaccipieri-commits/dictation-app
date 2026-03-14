@@ -79,12 +79,56 @@ struct ContentView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
 
+            // Model selectors
+            VStack(spacing: 4) {
+                HStack {
+                    Text("Ditado ao vivo:")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .frame(width: 90, alignment: .leading)
+                    Picker("", selection: Binding(
+                        get: { viewModel.liveModel },
+                        set: { viewModel.setLiveModel($0) }
+                    )) {
+                        ForEach(WhisperModel.allCases) { m in
+                            Text(m.displayName).tag(m)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
+                }
+                HStack {
+                    Text("Documentos:")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .frame(width: 90, alignment: .leading)
+                    Picker("", selection: Binding(
+                        get: { viewModel.batchModel },
+                        set: { viewModel.setBatchModel($0) }
+                    )) {
+                        ForEach(WhisperModel.allCases) { m in
+                            Text(m.displayName).tag(m)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
+                }
+            }
+
             if let status = viewModel.batchStatus {
                 HStack(spacing: 6) {
                     ProgressView().scaleEffect(0.5)
                     Text(status)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    Spacer()
+                    Button("Cancelar") {
+                        BatchTranscriber.shared.cancel()
+                        viewModel.batchStatus = nil
+                    }
+                    .font(.caption2)
+                    .buttonStyle(.borderless)
+                    .foregroundColor(.red)
                 }
                 .font(.caption2)
                 .foregroundColor(.orange)
