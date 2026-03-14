@@ -38,6 +38,11 @@ class DictationViewModel: ObservableObject {
             guard let self, self.state == .idle else { return }
             self.toggle()
         }
+        recorder.onRecordingInterrupted = { [weak self] in
+            guard let self, self.state == .recording else { return }
+            NSLog("DictationApp: recording interrupted — finalizing with captured audio")
+            self.stopRecording()
+        }
         Task { await self.loadModels() }
     }
 

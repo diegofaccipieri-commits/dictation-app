@@ -97,7 +97,6 @@ class FnKeyMonitor {
 
             // While recording: single fn press stops — no double-tap needed.
             if isRecording {
-                NSLog("DictationApp: fn DOWN while recording → stopping")
                 fnIsDown = false
                 lastFnPressTime = 0
                 DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
@@ -107,11 +106,10 @@ class FnKeyMonitor {
             // While idle: require double-tap to start.
             let now = ProcessInfo.processInfo.systemUptime
             let delta = now - lastFnPressTime
-            NSLog("DictationApp: fn DOWN — delta=\(String(format: "%.3f", delta))s")
             if delta < doubleTapInterval {
                 lastFnPressTime = 0
                 fnIsDown = false
-                NSLog("DictationApp: double-tap → firing onDoubleTap")
+                NSLog("DictationApp: double-tap → start")
                 DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
             } else {
                 lastFnPressTime = now

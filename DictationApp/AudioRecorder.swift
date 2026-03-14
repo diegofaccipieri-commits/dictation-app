@@ -13,6 +13,9 @@ class AudioRecorder: NSObject, ObservableObject {
 
     var onRecordingFinished: ((URL) -> Void)?
     var onSamplesAvailable: (([Float], Double) -> Void)?  // samples + sampleRate
+    var onRecordingInterrupted: (() -> Void)?
+
+    private var configChangeObserver: NSObjectProtocol?
 
     var currentSamples: ([Float], Double) {
         sampleLock.lock()
@@ -57,6 +60,21 @@ class AudioRecorder: NSObject, ObservableObject {
         }
 
         try engine.start()
+
+        // Remove any previous observer before adding a new one (prevents accumulation across sessions).
+        if let prev = configChangeObserver {
+            NotificationCenter.default.removeObserver(prev)
+        }
+        // If macOS reconfigures the audio hardware (device change, app switch with exclusive audio),
+        // AVAudioEngine stops automatically. Catch this and notify the ViewModel to finalize gracefully.
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            NSLog("DictationApp: AVAudioEngine configuration changed — stopping recording")
+            self?.onRecordingInterrupted?()
+        }
     }
 
     // Linear interpolation resample to 16kHz — accurate enough for speech.
@@ -78,6 +96,10 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     func stopRecording() {
+        if let obs = configChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+            configChangeObserver = nil
+        }
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
