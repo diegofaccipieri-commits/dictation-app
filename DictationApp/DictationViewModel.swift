@@ -12,6 +12,7 @@ class DictationViewModel: ObservableObject {
     @Published var isFinalModelReady: Bool = false
     @Published var history: [String] = (UserDefaults.standard.array(forKey: "transcriptionHistory") as? [String]) ?? []
     @Published var isWakeWordEnabled: Bool = UserDefaults.standard.bool(forKey: "wakeWordEnabled")
+    @Published var batchStatus: String? = nil
 
     private let recorder = AudioRecorder()
     private let transcriptionManager = TranscriptionManager()

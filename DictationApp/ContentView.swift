@@ -79,6 +79,22 @@ struct ContentView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
 
+            if let status = viewModel.batchStatus {
+                HStack(spacing: 6) {
+                    ProgressView().scaleEffect(0.5)
+                    Text(status)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .font(.caption2)
+                .foregroundColor(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(6)
+            }
+
             HStack {
                 Text("Shortcut: fn fn  •  ESC to cancel")
                 Spacer()

@@ -154,10 +154,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         batch.onProgress = { [weak self] msg in
-            self?.statusItem?.button?.toolTip = msg
+            self?.viewModel.batchStatus = msg
+            self?.statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
         }
         batch.onComplete = { [weak self] (done: Int, _: Int) in
-            self?.statusItem?.button?.toolTip = nil
+            self?.viewModel.batchStatus = nil
+            self?.statusItem?.button?.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "Dictation")
             if done > 0 {
                 let output = file.deletingPathExtension().appendingPathExtension("txt")
                 self?.notify(title: "Transcrição concluída", message: output.lastPathComponent)
@@ -167,10 +169,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Reuse BatchTranscriber passing a temp folder with just this file's parent
-        // but filtering to only this file via a single-file mode.
         batch.startSingleFile(file: file, transcriber: viewModel.finalTranscriber)
-        notify(title: "Transcrevendo…", message: file.lastPathComponent)
+        viewModel.batchStatus = "Iniciando: \(file.lastPathComponent)"
+        statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
     }
 
     @objc func startBatchTranscription() {
@@ -189,15 +190,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         batch.onProgress = { [weak self] msg in
-            self?.statusItem?.button?.toolTip = msg
+            self?.viewModel.batchStatus = msg
+            self?.statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
         }
         batch.onComplete = { [weak self] (done: Int, total: Int) in
-            self?.statusItem?.button?.toolTip = nil
+            self?.viewModel.batchStatus = nil
+            self?.statusItem?.button?.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "Dictation")
             self?.notify(title: "Transcrição concluída", message: "\(done) de \(total) arquivo(s) transcritos.")
         }
 
         batch.start(folder: folder, transcriber: viewModel.finalTranscriber)
-        notify(title: "Transcrição em lote iniciada", message: "Processando arquivos em background…")
+        viewModel.batchStatus = "Iniciando lote…"
+        statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
     }
 
     private func notify(title: String, message: String) {
