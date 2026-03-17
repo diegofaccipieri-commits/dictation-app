@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 import CoreGraphics
 
 @MainActor
@@ -212,12 +213,30 @@ class DictationViewModel: ObservableObject {
     // Timeout: 45s. If it times out, uses the streaming preview as result.
 
     private func finalizeTranscription(url: URL, fallback: String) {
+        // Check file exists and has meaningful audio (not just a WAV header)
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-        guard fileSize > 0 else {
-            errorMessage = "Recording was empty"
+        guard fileSize > 1000 else {
+            NSLog("DictationApp: recording too small (%d bytes) — skipping transcription", fileSize)
+            errorMessage = fileSize == 0 ? "Recording was empty" : "Recording too short"
             state = .idle
             hud.hide()
+            if isWakeWordEnabled { wakeWordMonitor.start() }
+            try? FileManager.default.removeItem(at: url)
             return
+        }
+
+        // Check audio duration — skip if under 0.3 seconds
+        if let audioFile = try? AVAudioFile(forReading: url) {
+            let duration = Double(audioFile.length) / audioFile.fileFormat.sampleRate
+            if duration < 0.3 {
+                NSLog("DictationApp: recording too short (%.2fs) — skipping transcription", duration)
+                errorMessage = "Recording too short"
+                state = .idle
+                hud.hide()
+                if isWakeWordEnabled { wakeWordMonitor.start() }
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
         }
 
         let manager = transcriptionManager
