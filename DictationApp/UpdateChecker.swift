@@ -60,12 +60,16 @@ class UpdateChecker {
     }
 
     private static func downloadAndInstall(from url: URL) {
-        DispatchQueue.main.async {
-            showAlert(title: "Downloading…", message: "The app will restart automatically when the update is ready.")
-        }
+        // Determine where the running app lives — replace in-place, not hardcoded /Applications.
+        let currentAppPath = Bundle.main.bundlePath
+        let destination = URL(fileURLWithPath: currentAppPath)
+
+        NSLog("DictationApp: downloading update from %@", url.absoluteString)
+        NSLog("DictationApp: will replace app at %@", currentAppPath)
 
         URLSession.shared.downloadTask(with: url) { location, _, error in
             guard let location, error == nil else {
+                NSLog("DictationApp: download failed — %@", error?.localizedDescription ?? "unknown")
                 DispatchQueue.main.async { showAlert(title: "Download Failed", message: "Please try again later.") }
                 return
             }
@@ -88,8 +92,7 @@ class UpdateChecker {
                 return
             }
 
-            let newApp      = tempDir.appendingPathComponent(appName)
-            let destination = URL(fileURLWithPath: "/Applications/DictationApp.app")
+            let newApp = tempDir.appendingPathComponent(appName)
 
             // Shell script runs after the app quits: replaces the old binary and relaunches.
             let script = """
