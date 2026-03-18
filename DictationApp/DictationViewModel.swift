@@ -248,8 +248,15 @@ class DictationViewModel: ObservableObject {
                     return nil
                 }
                 group.addTask {
-                    NSLog("DictationApp: starting final large-v3 transcription")
-                    return try? await manager.transcribeFinal(url: url)
+                    do {
+                        let result = try await manager.transcribeFinal(url: url)
+                        NSLog("DictationApp: final transcription returned %d chars", result.count)
+                        // Treat empty string as failure so fallback kicks in
+                        return result.isEmpty ? nil : result
+                    } catch {
+                        NSLog("DictationApp: final transcription failed — %@", error.localizedDescription)
+                        return nil
+                    }
                 }
                 for await result in group {
                     group.cancelAll()
@@ -261,6 +268,7 @@ class DictationViewModel: ObservableObject {
 
             await MainActor.run {
                 if text.isEmpty {
+                    NSLog("DictationApp: no text after transcription + fallback — nothing to paste")
                     self?.errorMessage = "No speech detected"
                 } else {
                     self?.transcribedText = text

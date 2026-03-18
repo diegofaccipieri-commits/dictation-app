@@ -5,9 +5,21 @@ class UpdateChecker {
     static let repoOwner = "diegofaccipieri-commits"
     static let repoName  = "dictation-app"
     static let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
+    private static let lastUpdateAttemptKey = "lastUpdateAttemptVersion"
 
     // Call on launch (silent) and from menu (userInitiated shows "already up to date" alert).
     static func checkForUpdates(userInitiated: Bool = false) {
+        // Anti-loop: if we just updated TO this version, skip the automatic check.
+        // Manual checks (userInitiated) always proceed.
+        if !userInitiated {
+            let lastAttempt = UserDefaults.standard.string(forKey: lastUpdateAttemptKey) ?? ""
+            if lastAttempt == currentVersion {
+                NSLog("DictationApp: skipping auto-update check — already attempted update to %@", currentVersion)
+                UserDefaults.standard.removeObject(forKey: lastUpdateAttemptKey)
+                return
+            }
+        }
+
         guard let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest") else { return }
 
         URLSession.shared.dataTask(with: url) { data, _, error in
@@ -53,23 +65,26 @@ class UpdateChecker {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         if let urlString = downloadURL, let url = URL(string: urlString) {
-            downloadAndInstall(from: url)
+            // Mark target version so the relaunched app skips one auto-check (anti-loop).
+            UserDefaults.standard.set(latest, forKey: lastUpdateAttemptKey)
+            downloadAndInstall(from: url, targetVersion: latest)
         } else {
             NSWorkspace.shared.open(URL(string: "https://github.com/\(repoOwner)/\(repoName)/releases/latest")!)
         }
     }
 
-    private static func downloadAndInstall(from url: URL) {
+    private static func downloadAndInstall(from url: URL, targetVersion: String) {
         // Determine where the running app lives — replace in-place, not hardcoded /Applications.
         let currentAppPath = Bundle.main.bundlePath
         let destination = URL(fileURLWithPath: currentAppPath)
 
         NSLog("DictationApp: downloading update from %@", url.absoluteString)
-        NSLog("DictationApp: will replace app at %@", currentAppPath)
+        NSLog("DictationApp: will replace app at %@ (current: %@, target: %@)", currentAppPath, currentVersion, targetVersion)
 
         URLSession.shared.downloadTask(with: url) { location, _, error in
             guard let location, error == nil else {
                 NSLog("DictationApp: download failed — %@", error?.localizedDescription ?? "unknown")
+                UserDefaults.standard.removeObject(forKey: lastUpdateAttemptKey)
                 DispatchQueue.main.async { showAlert(title: "Download Failed", message: "Please try again later.") }
                 return
             }
@@ -82,25 +97,71 @@ class UpdateChecker {
             // Unzip
             let unzip = Process()
             unzip.launchPath = "/usr/bin/unzip"
-            unzip.arguments  = ["-q", zipPath.path, "-d", tempDir.path]
+            unzip.arguments  = ["-o", "-q", zipPath.path, "-d", tempDir.path]
             unzip.launch(); unzip.waitUntilExit()
+
+            guard unzip.terminationStatus == 0 else {
+                NSLog("DictationApp: unzip failed with status %d", unzip.terminationStatus)
+                UserDefaults.standard.removeObject(forKey: lastUpdateAttemptKey)
+                DispatchQueue.main.async { showAlert(title: "Install Failed", message: "Could not extract the update archive.") }
+                return
+            }
 
             // Locate the extracted .app
             let contents = (try? FileManager.default.contentsOfDirectory(atPath: tempDir.path)) ?? []
             guard let appName = contents.first(where: { $0.hasSuffix(".app") }) else {
+                NSLog("DictationApp: no .app found in extracted archive — contents: %@", contents.description)
+                UserDefaults.standard.removeObject(forKey: lastUpdateAttemptKey)
                 DispatchQueue.main.async { showAlert(title: "Install Failed", message: "Could not find app in the downloaded archive.") }
                 return
             }
 
             let newApp = tempDir.appendingPathComponent(appName)
 
-            // Shell script runs after the app quits: replaces the old binary and relaunches.
+            // Verify the downloaded app actually has the expected version
+            let newPlist = newApp.appendingPathComponent("Contents/Info.plist")
+            if let plistData = try? Data(contentsOf: newPlist),
+               let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
+               let newVersion = plist["CFBundleShortVersionString"] as? String {
+                NSLog("DictationApp: downloaded app reports version %@", newVersion)
+                if newVersion == currentVersion {
+                    NSLog("DictationApp: downloaded version (%@) same as current — aborting update to prevent loop", newVersion)
+                    UserDefaults.standard.removeObject(forKey: lastUpdateAttemptKey)
+                    DispatchQueue.main.async { showAlert(title: "Update Problem", message: "Downloaded version (\(newVersion)) is the same as the running version. No update needed.") }
+                    return
+                }
+            } else {
+                NSLog("DictationApp: WARNING — could not read version from downloaded app plist")
+            }
+
+            // Shell script: wait for app to quit, replace, flush LS cache, relaunch.
+            let logFile = tempDir.appendingPathComponent("update.log")
             let script = """
             #!/bin/bash
-            sleep 2
+            exec > "\(logFile.path)" 2>&1
+            echo "Update script started at $(date)"
+
+            # Wait for old process to fully exit (up to 10s)
+            OLD_PID=\(ProcessInfo.processInfo.processIdentifier)
+            for i in $(seq 1 20); do
+                if ! kill -0 $OLD_PID 2>/dev/null; then break; fi
+                sleep 0.5
+            done
+
+            echo "Removing old app at \(destination.path)"
             rm -rf "\(destination.path)"
+            if [ $? -ne 0 ]; then echo "ERROR: rm failed"; exit 1; fi
+
+            echo "Copying new app from \(newApp.path)"
             cp -R "\(newApp.path)" "\(destination.path)"
+            if [ $? -ne 0 ]; then echo "ERROR: cp failed"; exit 1; fi
+
+            # Clear Launch Services cache so macOS picks up new version
+            /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "\(destination.path)" 2>/dev/null
+
+            echo "Relaunching app"
             open "\(destination.path)"
+            echo "Update script done at $(date)"
             """
             let scriptPath = tempDir.appendingPathComponent("update.sh")
             try? script.write(to: scriptPath, atomically: true, encoding: .utf8)
