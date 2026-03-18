@@ -45,7 +45,10 @@ actor FinalTranscriber {
     private func ensureLoaded(_ model: WhisperModel) async {
         guard cache[model.rawValue] == nil else { return }
         do {
-            let kit = try await WhisperKit(model: model.rawValue)
+            let kit = try await WhisperKit(WhisperKitConfig(
+                model: model.rawValue,
+                verbose: false
+            ))
             cache[model.rawValue] = kit
             NSLog("DictationApp: \(model.displayName) loaded")
         } catch {
@@ -123,12 +126,23 @@ class TranscriptionManager {
     }
 
     func transcribeSamplesFinal(_ samples: [Float]) async -> String {
-        await final_.transcribeSamples(samples, model: liveModel)
+        guard let kit = await final_.kit(for: liveModel) else { return "" }
+        let results = await kit.transcribe(audioArrays: [samples], decodeOptions: Self.defaultDecodingOptions)
+        return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
     }
 
+    // Runs transcription OUTSIDE the FinalTranscriber actor so a hung
+    // transcription doesn't block subsequent calls on different models.
     func transcribeFinal(url: URL) async throws -> String {
-        try await final_.transcribeFile(url: url, model: liveModel)
+        guard let kit = await final_.kit(for: liveModel) else { throw TranscriptionError.notLoaded }
+        let results = await kit.transcribe(audioPaths: [url.path], decodeOptions: Self.defaultDecodingOptions)
+        return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
     }
+
+    private static let defaultDecodingOptions = DecodingOptions(
+        task: .transcribe, language: nil, temperature: 0.0,
+        usePrefillPrompt: true, detectLanguage: true, noSpeechThreshold: 0.3
+    )
 
     var currentLiveModel: WhisperModel { liveModel }
     var currentBatchModel: WhisperModel { batchModel }

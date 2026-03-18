@@ -241,29 +241,41 @@ class DictationViewModel: ObservableObject {
 
         let manager = transcriptionManager
         transcriptionTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let text: String = await withTaskGroup(of: String?.self) { group in
-                group.addTask {
-                    try? await Task.sleep(nanoseconds: 20_000_000_000)
-                    NSLog("DictationApp: final transcription timed out — using streaming fallback")
-                    return nil
+            // Race transcription vs timeout using continuation (not TaskGroup,
+            // which waits for ALL children even after cancelAll — causing hangs
+            // when WhisperKit doesn't respond to cancellation).
+            let text: String = await withCheckedContinuation { continuation in
+                let lock = NSLock()
+                var resumed = false
+
+                func finish(_ value: String) {
+                    lock.lock()
+                    if resumed { lock.unlock(); return }
+                    resumed = true
+                    lock.unlock()
+                    continuation.resume(returning: value)
                 }
-                group.addTask {
+
+                // Timeout (45s)
+                Task {
+                    try? await Task.sleep(nanoseconds: 45_000_000_000)
+                    NSLog("DictationApp: final transcription timed out after 45s — using streaming fallback")
+                    finish(fallback)
+                }
+
+                // Transcription
+                Task {
+                    let start = ProcessInfo.processInfo.systemUptime
                     do {
                         let result = try await manager.transcribeFinal(url: url)
-                        NSLog("DictationApp: final transcription returned %d chars", result.count)
-                        // Treat empty string as failure so fallback kicks in
-                        return result.isEmpty ? nil : result
+                        let elapsed = ProcessInfo.processInfo.systemUptime - start
+                        NSLog("DictationApp: final transcription returned %d chars in %.1fs", result.count, elapsed)
+                        finish(result.isEmpty ? fallback : result)
                     } catch {
                         NSLog("DictationApp: final transcription failed — %@", error.localizedDescription)
-                        return nil
+                        finish(fallback)
                     }
                 }
-                for await result in group {
-                    group.cancelAll()
-                    if let result { return result }
-                    return fallback
-                }
-                return fallback
             }
 
             await MainActor.run {
