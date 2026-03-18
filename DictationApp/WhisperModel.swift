@@ -2,7 +2,7 @@ import Foundation
 
 enum WhisperModel: String, CaseIterable, Identifiable {
     case small  = "openai_whisper-small"
-    case turbo  = "openai_whisper-large-v3-turbo"
+    case turbo  = "openai_whisper-large-v3_turbo"
     case large  = "openai_whisper-large-v3"
 
     var id: String { rawValue }
