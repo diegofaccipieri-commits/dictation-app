@@ -9,7 +9,9 @@ actor StreamingTranscriber {
     private var kit: WhisperKit?
 
     func load() async throws {
+        NSLog("DictationApp: [STREAMING] loading small model...")
         kit = try await WhisperKit(model: WhisperModel.small.rawValue)
+        NSLog("DictationApp: [STREAMING] small model loaded OK")
     }
 
     var isReady: Bool { kit != nil }
@@ -103,16 +105,19 @@ class TranscriptionManager {
     }
 
     func loadModels(liveModel: WhisperModel = .defaultLive, batchModel: WhisperModel = .defaultBatch) async throws {
+        NSLog("DictationApp: [TM] loadModels: setting liveModel=%@ batchModel=%@", liveModel.displayName, batchModel.displayName)
         self.liveModel = liveModel
         self.batchModel = batchModel
         try await streaming.load()
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
             await self.final_.load(liveModel: liveModel, batchModel: batchModel)
+            NSLog("DictationApp: [TM] final models loaded, liveModel is now %@", self.liveModel.displayName)
         }
     }
 
     func updateModels(liveModel: WhisperModel, batchModel: WhisperModel) async {
+        NSLog("DictationApp: [TM] updateModels: setting liveModel=%@ batchModel=%@", liveModel.displayName, batchModel.displayName)
         self.liveModel = liveModel
         self.batchModel = batchModel
         Task.detached(priority: .background) { [weak self] in
@@ -125,18 +130,69 @@ class TranscriptionManager {
         await streaming.transcribe(samples)
     }
 
+    // Dedicated Turbo WhisperKit instance for final transcription — avoids actor deadlock
+    // with the streaming actor that may still have a pending transcription.
+    private var finalTurboKit: WhisperKit?
+
     func transcribeSamplesFinal(_ samples: [Float]) async -> String {
-        guard let kit = await final_.kit(for: liveModel) else { return "" }
+        NSLog("DictationApp: [TRANSCRIBE] transcribeSamplesFinal: %d samples (%.1fs), Turbo audioArrays", samples.count, Double(samples.count) / 16000.0)
+
+        // Load dedicated Turbo kit on first use — cpuAndGPU to avoid ANE hang on macOS 26
+        if finalTurboKit == nil {
+            NSLog("DictationApp: [TRANSCRIBE] loading dedicated Turbo model (cpuAndGPU)...")
+            finalTurboKit = try? await WhisperKit(WhisperKitConfig(
+                model: WhisperModel.turbo.rawValue,
+                computeOptions: ModelComputeOptions(
+                    audioEncoderCompute: .cpuAndGPU,
+                    textDecoderCompute: .cpuAndGPU
+                ),
+                verbose: false
+            ))
+            NSLog("DictationApp: [TRANSCRIBE] dedicated Turbo loaded: %@", finalTurboKit != nil ? "OK" : "FAILED")
+        }
+        guard let kit = finalTurboKit else {
+            NSLog("DictationApp: [TRANSCRIBE] ERROR: Turbo not available")
+            return ""
+        }
+
+        NSLog("DictationApp: [TRANSCRIBE] starting Turbo transcribe(audioArrays:) on %d samples...", samples.count)
         let results = await kit.transcribe(audioArrays: [samples], decodeOptions: Self.defaultDecodingOptions)
-        return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
+        let text = TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
+        NSLog("DictationApp: [TRANSCRIBE] Turbo done: %d chars", text.count)
+        return text
     }
 
     // Runs transcription OUTSIDE the FinalTranscriber actor so a hung
     // transcription doesn't block subsequent calls on different models.
     func transcribeFinal(url: URL) async throws -> String {
-        guard let kit = await final_.kit(for: liveModel) else { throw TranscriptionError.notLoaded }
+        NSLog("DictationApp: [TRANSCRIBE] transcribeFinal called, liveModel=%@ (.rawValue=%@)", liveModel.displayName, liveModel.rawValue)
+
+        // Try liveModel first, then try all models in priority order
+        var kit = await final_.kit(for: liveModel)
+        var usedModel = liveModel.displayName
+
+        if kit == nil {
+            NSLog("DictationApp: [TRANSCRIBE] liveModel %@ not in cache, trying fallbacks...", liveModel.displayName)
+            for model in [WhisperModel.turbo, .small] where model != liveModel {
+                kit = await final_.kit(for: model)
+                if kit != nil {
+                    usedModel = model.displayName
+                    NSLog("DictationApp: [TRANSCRIBE] using fallback model: %@", usedModel)
+                    break
+                }
+            }
+        }
+
+        guard let kit else {
+            NSLog("DictationApp: [TRANSCRIBE] ERROR: no models available in FinalTranscriber!")
+            throw TranscriptionError.notLoaded
+        }
+
+        NSLog("DictationApp: [TRANSCRIBE] starting transcription of %@ with %@", url.lastPathComponent, usedModel)
         let results = await kit.transcribe(audioPaths: [url.path], decodeOptions: Self.defaultDecodingOptions)
-        return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
+        let text = TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
+        NSLog("DictationApp: [TRANSCRIBE] transcribeFinal done, %d chars", text.count)
+        return text
     }
 
     private static let defaultDecodingOptions = DecodingOptions(

@@ -23,9 +23,14 @@ class AudioRecorder: NSObject, ObservableObject {
         return (sampleBuffer, sampleRate)
     }
 
+    private var tapCallbackCount = 0
+
     func startRecording() throws {
         sampleBuffer = []
         sampleRate = 16000  // buffer is always resampled to 16kHz (WhisperKit requirement)
+        tapCallbackCount = 0
+
+        NSLog("DictationApp: [RECORDER] startRecording called")
 
         let engine = AVAudioEngine()
         audioEngine = engine
@@ -33,17 +38,29 @@ class AudioRecorder: NSObject, ObservableObject {
         let inputNode = engine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
         let nativeSampleRate = format.sampleRate
+        NSLog("DictationApp: [RECORDER] input format: %.0f Hz, %d channels", nativeSampleRate, format.channelCount)
 
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
         recordingURL = tempURL
+        NSLog("DictationApp: [RECORDER] recording to %@", tempURL.path)
 
         audioFile = try AVAudioFile(forWriting: tempURL, settings: format.settings)
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             guard let self else { return }
             try? self.audioFile?.write(from: buffer)
+
+            self.tapCallbackCount += 1
+            if self.tapCallbackCount == 1 {
+                NSLog("DictationApp: [RECORDER] first audio buffer received (%d frames)", Int(buffer.frameLength))
+            } else if self.tapCallbackCount % 100 == 0 {
+                self.sampleLock.lock()
+                let totalSamples = self.sampleBuffer.count
+                self.sampleLock.unlock()
+                NSLog("DictationApp: [RECORDER] %d buffers received, %d samples accumulated (%.1fs)", self.tapCallbackCount, totalSamples, Double(totalSamples) / 16000.0)
+            }
 
             // Accumulate samples resampled to 16kHz — WhisperKit's transcribe(audioArrays:) expects 16kHz.
             // The WAV file stays at native rate (WhisperKit reads its header when using audioPaths).
@@ -60,6 +77,7 @@ class AudioRecorder: NSObject, ObservableObject {
         }
 
         try engine.start()
+        NSLog("DictationApp: [RECORDER] AVAudioEngine started successfully")
 
         // Remove any previous observer before adding a new one (prevents accumulation across sessions).
         if let prev = configChangeObserver {
@@ -96,6 +114,7 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     func stopRecording() {
+        NSLog("DictationApp: [RECORDER] stopRecording called (%d buffers total)", tapCallbackCount)
         if let obs = configChangeObserver {
             NotificationCenter.default.removeObserver(obs)
             configChangeObserver = nil
@@ -107,7 +126,11 @@ class AudioRecorder: NSObject, ObservableObject {
         sampleBuffer = []
 
         if let url = recordingURL {
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+            NSLog("DictationApp: [RECORDER] WAV file: %d bytes at %@", size, url.path)
             onRecordingFinished?(url)
+        } else {
+            NSLog("DictationApp: [RECORDER] WARNING: no recording URL!")
         }
     }
 }

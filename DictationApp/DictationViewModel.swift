@@ -59,12 +59,14 @@ class DictationViewModel: ObservableObject {
     }
 
     func setLiveModel(_ model: WhisperModel) {
+        NSLog("DictationApp: [VM] setLiveModel called: %@", model.displayName)
         liveModel = model
         UserDefaults.standard.set(model.rawValue, forKey: "liveModel")
         Task { await transcriptionManager.updateModels(liveModel: model, batchModel: batchModel) }
     }
 
     func setBatchModel(_ model: WhisperModel) {
+        NSLog("DictationApp: [VM] setBatchModel called: %@", model.displayName)
         batchModel = model
         UserDefaults.standard.set(model.rawValue, forKey: "batchModel")
         Task { await transcriptionManager.updateModels(liveModel: liveModel, batchModel: model) }
@@ -72,9 +74,11 @@ class DictationViewModel: ObservableObject {
 
     private func loadModels(liveModel: WhisperModel = .defaultLive, batchModel: WhisperModel = .defaultBatch) async {
         isModelLoading = true
+        NSLog("DictationApp: [VM] loading models: live=%@ batch=%@", liveModel.displayName, batchModel.displayName)
         do {
             try await transcriptionManager.loadModels(liveModel: liveModel, batchModel: batchModel)
             isModelLoaded = true
+            NSLog("DictationApp: [VM] streaming model loaded, isModelLoaded=true")
             Task.detached(priority: .background) { [weak self] in
                 while true {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -86,9 +90,11 @@ class DictationViewModel: ObservableObject {
                 }
             }
         } catch {
+            NSLog("DictationApp: [VM] ERROR loading models: %@", error.localizedDescription)
             errorMessage = "Failed to load model: \(error.localizedDescription)"
         }
         isModelLoading = false
+        NSLog("DictationApp: [VM] loadModels done, isModelLoaded=%d", isModelLoaded ? 1 : 0)
     }
 
     func toggle() {
@@ -119,6 +125,7 @@ class DictationViewModel: ObservableObject {
     }
 
     private func startRecording() {
+        NSLog("DictationApp: [VM] startRecording called, state=%d isModelLoaded=%d", state == .idle ? 0 : state == .recording ? 1 : 2, isModelLoaded ? 1 : 0)
         committedText = ""
         committedSampleIndex = 0
         transcribedText = ""
@@ -127,26 +134,35 @@ class DictationViewModel: ObservableObject {
         do {
             try recorder.startRecording()
             state = .recording
+            NSLog("DictationApp: [VM] state -> recording, starting streaming loop")
             let cursor = NSEvent.mouseLocation
             hud.show(state: .recording, near: cursor)
             startStreamingLoop()
         } catch {
+            NSLog("DictationApp: [VM] ERROR starting recording: %@", error.localizedDescription)
             errorMessage = "Microphone error: \(error.localizedDescription)"
             if isWakeWordEnabled { wakeWordMonitor.start() }
         }
     }
 
     private func stopRecording() {
+        NSLog("DictationApp: [VM] stopRecording called, committedText=%d chars", committedText.count)
         streamingTask?.cancel()
         streamingTask = nil
         state = .transcribing
         hud.update(state: .transcribing)
 
-        // Snapshot streaming text — used as fallback if final transcription times out.
         let fallback = committedText
+        NSLog("DictationApp: [VM] fallback text: '%@'", fallback.prefix(100) as CVarArg)
+
+        // Capture samples BEFORE stopRecording clears the buffer
+        let (allSamples, _) = recorder.currentSamples
+        NSLog("DictationApp: [VM] captured %d samples (%.1fs) for Turbo final", allSamples.count, Double(allSamples.count) / 16000.0)
 
         recorder.onRecordingFinished = { [weak self] url in
-            self?.finalizeTranscription(url: url, fallback: fallback)
+            // Clean up WAV file, we use audioArrays now
+            try? FileManager.default.removeItem(at: url)
+            self?.finalizeTranscription(samples: allSamples, fallback: fallback)
         }
         recorder.stopRecording()
         committedText = ""
@@ -173,13 +189,18 @@ class DictationViewModel: ObservableObject {
                 let pendingSamples = Array(allSamples[safeIdx...])
                 let minSamples = Int(sampleRate)
 
-                guard pendingSamples.count >= minSamples else { continue }
+                guard pendingSamples.count >= minSamples else {
+                    NSLog("DictationApp: [STREAM] waiting for audio: %d samples (need %d)", pendingSamples.count, minSamples)
+                    continue
+                }
 
                 let chunkSize = Int(sampleRate) * chunk
+                NSLog("DictationApp: [STREAM] processing %d pending samples (chunk=%d)", pendingSamples.count, chunkSize)
 
                 if pendingSamples.count >= chunkSize {
                     let chunkSamples = Array(pendingSamples.prefix(chunkSize))
                     let chunkText = await manager.transcribeSamples(chunkSamples)
+                    NSLog("DictationApp: [STREAM] chunk transcribed: '%@'", chunkText.prefix(80) as CVarArg)
 
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
@@ -192,6 +213,7 @@ class DictationViewModel: ObservableObject {
                     }
                 } else {
                     let previewText = await manager.transcribeSamples(pendingSamples)
+                    NSLog("DictationApp: [STREAM] preview transcribed: '%@'", previewText.prefix(80) as CVarArg)
 
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
@@ -212,38 +234,21 @@ class DictationViewModel: ObservableObject {
     // Replaces the streaming preview with the accurate multilingual result.
     // Timeout: 45s. If it times out, uses the streaming preview as result.
 
-    private func finalizeTranscription(url: URL, fallback: String) {
-        // Check file exists and has meaningful audio (not just a WAV header)
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-        guard fileSize > 1000 else {
-            NSLog("DictationApp: recording too small (%d bytes) — skipping transcription", fileSize)
-            errorMessage = fileSize == 0 ? "Recording was empty" : "Recording too short"
+    private func finalizeTranscription(samples: [Float], fallback: String) {
+        NSLog("DictationApp: [FINAL] finalizeTranscription called, %d samples (%.1fs), fallback=%d chars", samples.count, Double(samples.count) / 16000.0, fallback.count)
+
+        guard samples.count >= 4800 else {
+            NSLog("DictationApp: [FINAL] too short (%d samples) — skipping", samples.count)
+            errorMessage = "Recording too short"
             state = .idle
             hud.hide()
             if isWakeWordEnabled { wakeWordMonitor.start() }
-            try? FileManager.default.removeItem(at: url)
             return
         }
 
-        // Check audio duration — skip if under 0.3 seconds
-        if let audioFile = try? AVAudioFile(forReading: url) {
-            let duration = Double(audioFile.length) / audioFile.fileFormat.sampleRate
-            if duration < 0.3 {
-                NSLog("DictationApp: recording too short (%.2fs) — skipping transcription", duration)
-                errorMessage = "Recording too short"
-                state = .idle
-                hud.hide()
-                if isWakeWordEnabled { wakeWordMonitor.start() }
-                try? FileManager.default.removeItem(at: url)
-                return
-            }
-        }
-
         let manager = transcriptionManager
+        NSLog("DictationApp: [FINAL] isFinalModelReady=%d, starting Turbo audioArrays transcription (45s timeout)", isFinalModelReady ? 1 : 0)
         transcriptionTask = Task.detached(priority: .userInitiated) { [weak self] in
-            // Race transcription vs timeout using continuation (not TaskGroup,
-            // which waits for ALL children even after cancelAll — causing hangs
-            // when WhisperKit doesn't respond to cancellation).
             let text: String = await withCheckedContinuation { continuation in
                 let lock = NSLock()
                 var resumed = false
@@ -259,30 +264,28 @@ class DictationViewModel: ObservableObject {
                 // Timeout (45s)
                 Task {
                     try? await Task.sleep(nanoseconds: 45_000_000_000)
-                    NSLog("DictationApp: final transcription timed out after 45s — using streaming fallback")
+                    NSLog("DictationApp: [FINAL] TIMED OUT after 45s — using fallback")
                     finish(fallback)
                 }
 
-                // Transcription
+                // Transcription via audioArrays with Turbo
                 Task {
                     let start = ProcessInfo.processInfo.systemUptime
-                    do {
-                        let result = try await manager.transcribeFinal(url: url)
-                        let elapsed = ProcessInfo.processInfo.systemUptime - start
-                        NSLog("DictationApp: final transcription returned %d chars in %.1fs", result.count, elapsed)
-                        finish(result.isEmpty ? fallback : result)
-                    } catch {
-                        NSLog("DictationApp: final transcription failed — %@", error.localizedDescription)
-                        finish(fallback)
-                    }
+                    NSLog("DictationApp: [FINAL] calling transcribeSamplesFinal (Turbo audioArrays)...")
+                    let result = await manager.transcribeSamplesFinal(samples)
+                    let elapsed = ProcessInfo.processInfo.systemUptime - start
+                    NSLog("DictationApp: [FINAL] Turbo returned %d chars in %.1fs: '%@'", result.count, elapsed, String(result.prefix(100)))
+                    finish(result.isEmpty ? fallback : result)
                 }
             }
 
+            NSLog("DictationApp: [FINAL] transcription race finished, result=%d chars: '%@'", text.count, String(text.prefix(100)))
             await MainActor.run {
                 if text.isEmpty {
-                    NSLog("DictationApp: no text after transcription + fallback — nothing to paste")
+                    NSLog("DictationApp: [FINAL] no text — nothing to paste")
                     self?.errorMessage = "No speech detected"
                 } else {
+                    NSLog("DictationApp: [FINAL] pasting %d chars to clipboard", text.count)
                     self?.transcribedText = text
                     self?.addToHistory(text)
                     self?.copyToClipboard(text)
@@ -291,9 +294,9 @@ class DictationViewModel: ObservableObject {
                 }
                 self?.state = .idle
                 self?.hud.hide()
+                NSLog("DictationApp: [FINAL] state -> idle, done")
                 if self?.isWakeWordEnabled == true { self?.wakeWordMonitor.start() }
             }
-            try? FileManager.default.removeItem(at: url)
         }
     }
 

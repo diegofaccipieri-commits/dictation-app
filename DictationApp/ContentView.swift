@@ -148,16 +148,16 @@ struct ContentView: View {
             .foregroundColor(.secondary)
         }
         .padding()
-        .frame(width: 360, height: viewModel.history.isEmpty ? 260 : 260 + CGFloat(viewModel.history.count) * 46)
+        .frame(width: 360, height: viewModel.history.isEmpty ? 360 : 360 + CGFloat(viewModel.history.count) * 46)
     }
 
     private var statusText: String {
         if viewModel.isModelLoading { return "Loading model..." }
         if !viewModel.isModelLoaded { return "Model unavailable" }
         switch viewModel.state {
-        case .idle: return viewModel.isFinalModelReady ? "Ready (HD)" : "Ready (loading HD...)"
+        case .idle: return viewModel.isFinalModelReady ? "Ready" : "Ready (loading Turbo...)"
         case .recording: return "Recording..."
-        case .transcribing: return viewModel.isFinalModelReady ? "Transcribing (HD)..." : "Transcribing..."
+        case .transcribing: return "Transcribing..."
         }
     }
 
