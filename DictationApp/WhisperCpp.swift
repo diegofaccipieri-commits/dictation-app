@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import NaturalLanguage
 
 enum WhisperCppError: Error {
     case serverNotRunning
@@ -157,13 +158,17 @@ class WhisperCppServer {
 
     // MARK: - Word fragment merger
 
-    /// Merge tokenizer-split words using macOS spell checker.
-    /// Scans pairs of adjacent words: if neither is a recognized word but the
-    /// concatenation is, they were split by the BPE tokenizer and should be joined.
+    /// Merge tokenizer-split words using macOS spell checker + language detection.
+    /// Detects the dominant language first, then checks spelling in that language.
+    /// Merges when at least one fragment is misspelled and the joined word is valid.
     static func mergeFragmentedWords(_ text: String) -> String {
         let checker = NSSpellChecker.shared
         let words = text.components(separatedBy: " ")
         guard words.count >= 2 else { return text }
+
+        // Detect dominant language so we check spelling in the right dictionary
+        let lang = detectLanguage(text)
+        NSLog("DictationApp: [WCPP] mergeFragmentedWords: detected language '%@'", lang)
 
         var result: [String] = []
         var i = 0
@@ -173,22 +178,18 @@ class WhisperCppServer {
                 let b = words[i + 1]
                 let joined = a + b
 
-                // Only attempt merge when both fragments look like word parts (letters only, short-ish)
+                // Only attempt merge when both fragments look like word parts (letters only, 2+ chars)
                 let aLetters = a.allSatisfy { $0.isLetter }
                 let bLetters = b.allSatisfy { $0.isLetter }
 
                 if aLetters && bLetters && a.count >= 2 && b.count >= 2 {
-                    let aRange = checker.checkSpelling(of: a, startingAt: 0)
-                    let bRange = checker.checkSpelling(of: b, startingAt: 0)
-                    let joinedRange = checker.checkSpelling(of: joined, startingAt: 0)
+                    let aMisspelled = checker.checkSpelling(of: a, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
+                    let bMisspelled = checker.checkSpelling(of: b, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
+                    let joinedValid = checker.checkSpelling(of: joined, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
 
-                    // Both fragments misspelled but joined word is valid → merge
-                    let aMisspelled = aRange.location != NSNotFound
-                    let bMisspelled = bRange.location != NSNotFound
-                    let joinedValid = joinedRange.location == NSNotFound
-
-                    if aMisspelled && bMisspelled && joinedValid {
-                        NSLog("DictationApp: [WCPP] merged fragments: '%@' + '%@' → '%@'", a, b, joined)
+                    // At least one fragment misspelled AND joined word is valid → merge
+                    if (aMisspelled || bMisspelled) && joinedValid {
+                        NSLog("DictationApp: [WCPP] merged fragments: '%@' + '%@' → '%@' [%@]", a, b, joined, lang)
                         result.append(joined)
                         i += 2
                         continue
@@ -199,6 +200,14 @@ class WhisperCppServer {
             i += 1
         }
         return result.joined(separator: " ")
+    }
+
+    /// Detect dominant language of text using NLLanguageRecognizer.
+    private static func detectLanguage(_ text: String) -> String {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        guard let lang = recognizer.dominantLanguage else { return "en" }
+        return lang.rawValue
     }
 
     // MARK: - WAV helper
