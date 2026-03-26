@@ -135,28 +135,16 @@ class WhisperCppServer {
         }.resume()
         semaphore.wait()
 
-        // whisper.cpp inserts newlines between segments.
-        // Smart join: if prev line ends with a letter and next starts with lowercase,
-        // it's a mid-word split (e.g. "tradu\nções", "mod\nificações") — join without space.
+        // Join newline-separated segments with spaces, then merge tokenizer splits via spell checker.
         let lines = responseText.components(separatedBy: "\n")
-        var cleaned = ""
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-            if cleaned.isEmpty {
-                cleaned = trimmed
-            } else if let prevChar = cleaned.last, prevChar.isLetter,
-                      let nextChar = trimmed.first, nextChar.isLowercase {
-                cleaned += trimmed
-            } else {
-                cleaned += " " + trimmed
-            }
-        }
-        cleaned = cleaned.replacingOccurrences(of: "  ", with: " ")
+        var cleaned = lines
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .replacingOccurrences(of: "  ", with: " ")
             .trimmingCharacters(in: .whitespaces)
 
-        // Fix words split by the tokenizer within a segment (e.g. "mens agem" → "mensagem").
-        // Uses macOS spell checker: if neither fragment is valid but the joined word is, merge them.
+        // Fix words split by the tokenizer (e.g. "mens agem" → "mensagem").
         cleaned = WhisperCppServer.mergeFragmentedWords(cleaned)
 
         NSLog("DictationApp: [WCPP] server returned %d chars: '%@'", cleaned.count, String(cleaned.prefix(100)))

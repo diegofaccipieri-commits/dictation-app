@@ -303,23 +303,10 @@ enum TextCleaner {
         "transcribed by", "obrigado", "obrigada", "obrigado.", "obrigada.",
     ]
 
-    /// Fix words split across segment boundaries.
-    /// Segments sometimes break mid-word (e.g. "tradu" + "ções", "mod" + "ificações").
-    /// If prev segment ends with a letter and next starts with lowercase → join without space.
+    /// Join segment parts with spaces. Actual fragment merging is handled
+    /// by mergeFragmentedWords (spell-checker based) after joining.
     private static func smartJoin(_ parts: [String]) -> String {
-        var result = ""
-        for part in parts {
-            guard !part.isEmpty else { continue }
-            if result.isEmpty {
-                result = part
-            } else if let prevChar = result.last, prevChar.isLetter,
-                      let nextChar = part.first, nextChar.isLowercase {
-                result += part
-            } else {
-                result += " " + part
-            }
-        }
-        return result
+        parts.filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     private static func stripHallucinations(_ text: String) -> String {
