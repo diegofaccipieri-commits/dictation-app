@@ -39,6 +39,7 @@ class WhisperCppServer {
             "-m", modelPath,
             "--port", String(port),
             "-t", String(maxThreads),
+            "-fa",              // flash attention — faster inference on Apple Silicon
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -90,14 +91,8 @@ class WhisperCppServer {
         NSLog("DictationApp: [WCPP] transcribing %d samples (%.1fs) via server",
               samples.count, Double(samples.count) / 16000.0)
 
-        // Save samples to temp WAV
-        let wavURL = FileManager.default.temporaryDirectory.appendingPathComponent("wcpp_\(UUID().uuidString).wav")
-        WhisperCppServer.saveWav(samples: samples, to: wavURL)
-
-        guard let wavData = try? Data(contentsOf: wavURL) else {
-            try? FileManager.default.removeItem(at: wavURL)
-            return ""
-        }
+        // Build WAV data in memory (no disk I/O)
+        let wavData = WhisperCppServer.wavData(from: samples)
 
         // Build multipart form request
         let boundary = UUID().uuidString
@@ -139,8 +134,6 @@ class WhisperCppServer {
             semaphore.signal()
         }.resume()
         semaphore.wait()
-
-        try? FileManager.default.removeItem(at: wavURL)
 
         // whisper.cpp inserts newlines between segments.
         // Smart join: if prev line ends with a letter and next starts with lowercase,
@@ -221,6 +214,41 @@ class WhisperCppServer {
     }
 
     // MARK: - WAV helper
+
+    /// Build WAV data in memory — no disk I/O needed.
+    static func wavData(from samples: [Float]) -> Data {
+        let sr: Int32 = 16000
+        let bitsPerSample: Int16 = 16
+        let numChannels: Int16 = 1
+        let dataSize = Int32(samples.count * 2)
+        let fileSize = 36 + dataSize
+
+        var data = Data()
+        data.reserveCapacity(44 + Int(dataSize))
+        data.append(contentsOf: "RIFF".utf8)
+        data.append(contentsOf: withUnsafeBytes(of: fileSize.littleEndian) { Array($0) })
+        data.append(contentsOf: "WAVE".utf8)
+        data.append(contentsOf: "fmt ".utf8)
+        data.append(contentsOf: withUnsafeBytes(of: Int32(16).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: Int16(1).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: numChannels.littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: sr.littleEndian) { Array($0) })
+        let byteRate = sr * Int32(numChannels) * Int32(bitsPerSample / 8)
+        data.append(contentsOf: withUnsafeBytes(of: byteRate.littleEndian) { Array($0) })
+        let blockAlign = numChannels * (bitsPerSample / 8)
+        data.append(contentsOf: withUnsafeBytes(of: blockAlign.littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: bitsPerSample.littleEndian) { Array($0) })
+        data.append(contentsOf: "data".utf8)
+        data.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
+
+        for s in samples {
+            let clamped = max(-1.0, min(1.0, s))
+            let int16 = Int16(clamped * 32767.0)
+            data.append(contentsOf: withUnsafeBytes(of: int16.littleEndian) { Array($0) })
+        }
+
+        return data
+    }
 
     static func saveWav(samples: [Float], to url: URL) {
         let sr: Int32 = 16000

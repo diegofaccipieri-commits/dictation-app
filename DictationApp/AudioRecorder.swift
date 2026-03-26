@@ -3,15 +3,11 @@ import Foundation
 
 class AudioRecorder: NSObject, ObservableObject {
     private var audioEngine: AVAudioEngine?
-    private var audioFile: AVAudioFile?
-    private(set) var recordingURL: URL?
-
     // Accumulated samples for streaming transcription
     private var sampleBuffer: [Float] = []
     private var sampleRate: Double = 16000
     private let sampleLock = NSLock()
 
-    var onRecordingFinished: ((URL) -> Void)?
     var onSamplesAvailable: (([Float], Double) -> Void)?  // samples + sampleRate
     var onRecordingInterrupted: (() -> Void)?
 
@@ -40,17 +36,8 @@ class AudioRecorder: NSObject, ObservableObject {
         let nativeSampleRate = format.sampleRate
         NSLog("DictationApp: [RECORDER] input format: %.0f Hz, %d channels", nativeSampleRate, format.channelCount)
 
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("wav")
-        recordingURL = tempURL
-        NSLog("DictationApp: [RECORDER] recording to %@", tempURL.path)
-
-        audioFile = try AVAudioFile(forWriting: tempURL, settings: format.settings)
-
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             guard let self else { return }
-            try? self.audioFile?.write(from: buffer)
 
             self.tapCallbackCount += 1
             if self.tapCallbackCount == 1 {
@@ -122,15 +109,7 @@ class AudioRecorder: NSObject, ObservableObject {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
-        audioFile = nil
         sampleBuffer = []
-
-        if let url = recordingURL {
-            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-            NSLog("DictationApp: [RECORDER] WAV file: %d bytes at %@", size, url.path)
-            onRecordingFinished?(url)
-        } else {
-            NSLog("DictationApp: [RECORDER] WARNING: no recording URL!")
-        }
+        NSLog("DictationApp: [RECORDER] stopped")
     }
 }

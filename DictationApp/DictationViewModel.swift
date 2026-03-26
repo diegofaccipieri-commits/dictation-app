@@ -115,7 +115,6 @@ class DictationViewModel: ObservableObject {
         streamingTask = nil
         transcriptionTask?.cancel()
         transcriptionTask = nil
-        recorder.onRecordingFinished = { url in try? FileManager.default.removeItem(at: url) }
         recorder.stopRecording()
         committedText = ""
         committedSampleIndex = 0
@@ -160,11 +159,10 @@ class DictationViewModel: ObservableObject {
         let (allSamples, _) = recorder.currentSamples
         NSLog("DictationApp: [VM] captured %d samples (%.1fs) for Turbo final", allSamples.count, Double(allSamples.count) / 16000.0)
 
-        recorder.onRecordingFinished = { [weak self] url in
-            // Clean up WAV file, we use audioArrays now
-            try? FileManager.default.removeItem(at: url)
-            self?.finalizeTranscription(samples: allSamples, fallback: fallback)
-        }
+        // Start transcription IMMEDIATELY — don't wait for recorder to finish
+        finalizeTranscription(samples: allSamples, fallback: fallback)
+
+        // Stop recorder in background (no file to clean up)
         recorder.stopRecording()
         committedText = ""
         committedSampleIndex = 0
