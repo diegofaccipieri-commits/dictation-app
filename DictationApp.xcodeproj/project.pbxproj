@@ -10,6 +10,7 @@
 		0532F7CC9BFAB959362B756A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8AD2F1132A9EEC08366D2A4B /* WhisperKit */; };
 		0ACB384166C92BC787992471 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 4D9CF33863B95BC063C6DA7D /* KeyboardShortcuts */; };
 		184CC3F69A72710B50146F3F /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53548C9CE9802915382F99E /* UpdateChecker.swift */; };
+		27EAC0BF7D7E0B7639CF270B /* WhisperCpp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABDE54AB2A7F063EC484D388 /* WhisperCpp.swift */; };
 		38F27DBAE2090CAF4B76CA8A /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F9740C345122FA73E95E61 /* AudioRecorder.swift */; };
 		4A2CD45EB756D26F22AC98C0 /* DictationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AA2DB2253E05E4CA4F3AD0 /* DictationViewModel.swift */; };
 		5C3A024A857271A7DB5CFCFB /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */; };
@@ -30,6 +31,7 @@
 		010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionManager.swift; sourceTree = "<group>"; };
 		01109107F1370EA626F4B828 /* FnKeyMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnKeyMonitor.swift; sourceTree = "<group>"; };
 		09F9740C345122FA73E95E61 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
+		136F800BA7DE08E3D2BEE869 /* whisper-cli */ = {isa = PBXFileReference; path = "whisper-cli"; sourceTree = "<group>"; };
 		1ADE0027A68F764D4EA91A6D /* DictationHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationHUD.swift; sourceTree = "<group>"; };
 		2BEDE44D29C8252B3214EAD7 /* DictationApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DictationApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		30EAB6BEAB3CE8B50A40C939 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -41,6 +43,7 @@
 		8C9115276316585237DB37AB /* WhisperModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperModel.swift; sourceTree = "<group>"; };
 		9A88AA362405D41E5E904895 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A53548C9CE9802915382F99E /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
+		ABDE54AB2A7F063EC484D388 /* WhisperCpp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperCpp.swift; sourceTree = "<group>"; };
 		AC198E3C20403986C286C56F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		AE1290CAE439A7561A41F669 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordMonitor.swift; sourceTree = "<group>"; };
@@ -85,6 +88,8 @@
 				010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */,
 				A53548C9CE9802915382F99E /* UpdateChecker.swift */,
 				C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */,
+				136F800BA7DE08E3D2BEE869 /* whisper-cli */,
+				ABDE54AB2A7F063EC484D388 /* WhisperCpp.swift */,
 				8C9115276316585237DB37AB /* WhisperModel.swift */,
 			);
 			path = DictationApp;
@@ -185,6 +190,7 @@
 				D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */,
 				184CC3F69A72710B50146F3F /* UpdateChecker.swift in Sources */,
 				812119C11B13B90BFE27BF83 /* WakeWordMonitor.swift in Sources */,
+				27EAC0BF7D7E0B7639CF270B /* WhisperCpp.swift in Sources */,
 				E0673111C04A99474760C52B /* WhisperModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

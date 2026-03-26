@@ -152,8 +152,9 @@ class DictationViewModel: ObservableObject {
         state = .transcribing
         hud.update(state: .transcribing)
 
-        let fallback = committedText
-        NSLog("DictationApp: [VM] fallback text: '%@'", fallback.prefix(100) as CVarArg)
+        // Use transcribedText (what user sees, includes uncommitted preview) not just committedText
+        let fallback = transcribedText.isEmpty ? committedText : transcribedText
+        NSLog("DictationApp: [VM] fallback text (%d chars): '%@'", fallback.count, fallback.prefix(100) as CVarArg)
 
         // Capture samples BEFORE stopRecording clears the buffer
         let (allSamples, _) = recorder.currentSamples

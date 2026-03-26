@@ -47,10 +47,21 @@ actor FinalTranscriber {
     private func ensureLoaded(_ model: WhisperModel) async {
         guard cache[model.rawValue] == nil else { return }
         do {
-            let kit = try await WhisperKit(WhisperKitConfig(
-                model: model.rawValue,
-                verbose: false
-            ))
+            // Use cpuAndGPU for Turbo — ANE hangs on macOS 26.x
+            let config: WhisperKitConfig
+            if model == .turbo {
+                config = WhisperKitConfig(
+                    model: model.rawValue,
+                    computeOptions: ModelComputeOptions(
+                        audioEncoderCompute: .cpuAndGPU,
+                        textDecoderCompute: .cpuAndGPU
+                    ),
+                    verbose: false
+                )
+            } else {
+                config = WhisperKitConfig(model: model.rawValue, verbose: false)
+            }
+            let kit = try await WhisperKit(config)
             cache[model.rawValue] = kit
             NSLog("DictationApp: \(model.displayName) loaded")
         } catch {
@@ -111,6 +122,9 @@ class TranscriptionManager {
         try await streaming.load()
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
+            // Load whisper.cpp first (Metal GPU, fast)
+            await self.loadWhisperCpp()
+            // Also load WhisperKit as fallback
             await self.final_.load(liveModel: liveModel, batchModel: batchModel)
             NSLog("DictationApp: [TM] final models loaded, liveModel is now %@", self.liveModel.displayName)
         }
@@ -130,36 +144,47 @@ class TranscriptionManager {
         await streaming.transcribe(samples)
     }
 
-    // Dedicated Turbo WhisperKit instance for final transcription — avoids actor deadlock
-    // with the streaming actor that may still have a pending transcription.
-    private var finalTurboKit: WhisperKit?
+    // whisper.cpp server for final transcription (separate process, model stays in memory)
+    private var whisperCpp: WhisperCppServer?
+
+    func loadWhisperCpp() async {
+        let modelPath = NSHomeDirectory() + "/Documents/huggingface/models/whisper.cpp/ggml-large-v3-turbo-q5_0.bin"
+        let serverPath = Bundle.main.resourcePath! + "/whisper-server"
+        do {
+            let server = try WhisperCppServer(modelPath: modelPath, serverPath: serverPath)
+            server.start()
+            let ready = server.waitUntilReady(timeout: 120)
+            if ready {
+                whisperCpp = server
+            } else {
+                server.stop()
+                NSLog("DictationApp: [TM] whisper.cpp server failed to start")
+            }
+        } catch {
+            NSLog("DictationApp: [TM] whisper.cpp server not available: %@", error.localizedDescription)
+        }
+    }
 
     func transcribeSamplesFinal(_ samples: [Float]) async -> String {
-        NSLog("DictationApp: [TRANSCRIBE] transcribeSamplesFinal: %d samples (%.1fs), Turbo audioArrays", samples.count, Double(samples.count) / 16000.0)
+        NSLog("DictationApp: [TRANSCRIBE] transcribeSamplesFinal: %d samples (%.1fs)", samples.count, Double(samples.count) / 16000.0)
 
-        // Load dedicated Turbo kit on first use — cpuAndGPU to avoid ANE hang on macOS 26
-        if finalTurboKit == nil {
-            NSLog("DictationApp: [TRANSCRIBE] loading dedicated Turbo model (cpuAndGPU)...")
-            finalTurboKit = try? await WhisperKit(WhisperKitConfig(
-                model: WhisperModel.turbo.rawValue,
-                computeOptions: ModelComputeOptions(
-                    audioEncoderCompute: .cpuAndGPU,
-                    textDecoderCompute: .cpuAndGPU
-                ),
-                verbose: false
-            ))
-            NSLog("DictationApp: [TRANSCRIBE] dedicated Turbo loaded: %@", finalTurboKit != nil ? "OK" : "FAILED")
+        if let wcpp = whisperCpp {
+            NSLog("DictationApp: [TRANSCRIBE] using whisper.cpp server...")
+            let start = ProcessInfo.processInfo.systemUptime
+            let text = wcpp.transcribe(samples: samples)
+            let elapsed = ProcessInfo.processInfo.systemUptime - start
+            NSLog("DictationApp: [TRANSCRIBE] whisper.cpp done: %d chars in %.1fs", text.count, elapsed)
+            return text
         }
-        guard let kit = finalTurboKit else {
-            NSLog("DictationApp: [TRANSCRIBE] ERROR: Turbo not available")
+
+        // Fallback to WhisperKit if whisper.cpp not available
+        NSLog("DictationApp: [TRANSCRIBE] whisper.cpp not loaded, falling back to WhisperKit...")
+        guard let kit = await final_.kit(for: liveModel) else {
+            NSLog("DictationApp: [TRANSCRIBE] ERROR: no model available")
             return ""
         }
-
-        NSLog("DictationApp: [TRANSCRIBE] starting Turbo transcribe(audioArrays:) on %d samples...", samples.count)
         let results = await kit.transcribe(audioArrays: [samples], decodeOptions: Self.defaultDecodingOptions)
-        let text = TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
-        NSLog("DictationApp: [TRANSCRIBE] Turbo done: %d chars", text.count)
-        return text
+        return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
     }
 
     // Runs transcription OUTSIDE the FinalTranscriber actor so a hung
@@ -221,7 +246,7 @@ enum TextCleaner {
             }
             parts.append(text)
         }
-        let joined = parts.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        let joined = smartJoin(parts).trimmingCharacters(in: .whitespaces)
         let dehalluced = stripHallucinations(joined)
         return applyPunctuationCommands(dehalluced)
     }
@@ -276,6 +301,25 @@ enum TextCleaner {
         "thanks for listening", "please subscribe", "subtitles by",
         "transcribed by", "obrigado", "obrigada", "obrigado.", "obrigada.",
     ]
+
+    /// Fix words split across segment boundaries.
+    /// Segments sometimes break mid-word (e.g. "tradu" + "ções", "mod" + "ificações").
+    /// If prev segment ends with a letter and next starts with lowercase → join without space.
+    private static func smartJoin(_ parts: [String]) -> String {
+        var result = ""
+        for part in parts {
+            guard !part.isEmpty else { continue }
+            if result.isEmpty {
+                result = part
+            } else if let prevChar = result.last, prevChar.isLetter,
+                      let nextChar = part.first, nextChar.isLowercase {
+                result += part
+            } else {
+                result += " " + part
+            }
+        }
+        return result
+    }
 
     private static func stripHallucinations(_ text: String) -> String {
         var result = text

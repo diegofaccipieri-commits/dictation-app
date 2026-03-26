@@ -1,0 +1,5 @@
+framework module whisper {
+    header "whisper.h"
+    header "ggml.h"
+    export *
+}
