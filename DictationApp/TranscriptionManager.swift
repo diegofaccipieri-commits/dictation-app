@@ -247,7 +247,8 @@ enum TextCleaner {
             parts.append(text)
         }
         let joined = smartJoin(parts).trimmingCharacters(in: .whitespaces)
-        let dehalluced = stripHallucinations(joined)
+        let merged = WhisperCppServer.mergeFragmentedWords(joined)
+        let dehalluced = stripHallucinations(merged)
         return applyPunctuationCommands(dehalluced)
     }
 

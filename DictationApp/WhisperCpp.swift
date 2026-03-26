@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 enum WhisperCppError: Error {
     case serverNotRunning
@@ -146,7 +147,7 @@ class WhisperCppServer {
         // it's a mid-word split (e.g. "tradu\nções", "mod\nificações") — join without space.
         let lines = responseText.components(separatedBy: "\n")
         var cleaned = ""
-        for (i, line) in lines.enumerated() {
+        for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
             if cleaned.isEmpty {
@@ -161,12 +162,62 @@ class WhisperCppServer {
         cleaned = cleaned.replacingOccurrences(of: "  ", with: " ")
             .trimmingCharacters(in: .whitespaces)
 
+        // Fix words split by the tokenizer within a segment (e.g. "mens agem" → "mensagem").
+        // Uses macOS spell checker: if neither fragment is valid but the joined word is, merge them.
+        cleaned = WhisperCppServer.mergeFragmentedWords(cleaned)
+
         NSLog("DictationApp: [WCPP] server returned %d chars: '%@'", cleaned.count, String(cleaned.prefix(100)))
         return cleaned
     }
 
     deinit {
         stop()
+    }
+
+    // MARK: - Word fragment merger
+
+    /// Merge tokenizer-split words using macOS spell checker.
+    /// Scans pairs of adjacent words: if neither is a recognized word but the
+    /// concatenation is, they were split by the BPE tokenizer and should be joined.
+    static func mergeFragmentedWords(_ text: String) -> String {
+        let checker = NSSpellChecker.shared
+        let words = text.components(separatedBy: " ")
+        guard words.count >= 2 else { return text }
+
+        var result: [String] = []
+        var i = 0
+        while i < words.count {
+            if i + 1 < words.count {
+                let a = words[i]
+                let b = words[i + 1]
+                let joined = a + b
+
+                // Only attempt merge when both fragments look like word parts (letters only, short-ish)
+                let aLetters = a.allSatisfy { $0.isLetter }
+                let bLetters = b.allSatisfy { $0.isLetter }
+
+                if aLetters && bLetters && a.count >= 2 && b.count >= 2 {
+                    let aRange = checker.checkSpelling(of: a, startingAt: 0)
+                    let bRange = checker.checkSpelling(of: b, startingAt: 0)
+                    let joinedRange = checker.checkSpelling(of: joined, startingAt: 0)
+
+                    // Both fragments misspelled but joined word is valid → merge
+                    let aMisspelled = aRange.location != NSNotFound
+                    let bMisspelled = bRange.location != NSNotFound
+                    let joinedValid = joinedRange.location == NSNotFound
+
+                    if aMisspelled && bMisspelled && joinedValid {
+                        NSLog("DictationApp: [WCPP] merged fragments: '%@' + '%@' → '%@'", a, b, joined)
+                        result.append(joined)
+                        i += 2
+                        continue
+                    }
+                }
+            }
+            result.append(words[i])
+            i += 1
+        }
+        return result.joined(separator: " ")
     }
 
     // MARK: - WAV helper
