@@ -16,9 +16,12 @@ class DictationViewModel: ObservableObject {
     @Published var batchStatus: String? = nil
     @Published var liveModel: WhisperModel = WhisperModel(rawValue: UserDefaults.standard.string(forKey: "liveModel") ?? "") ?? .defaultLive
     @Published var batchModel: WhisperModel = WhisperModel(rawValue: UserDefaults.standard.string(forKey: "batchModel") ?? "") ?? .defaultBatch
+    @Published var translationMode: TranslationMode = TranslationMode(rawValue: UserDefaults.standard.string(forKey: "translationMode") ?? "") ?? .off
+    @Published var isTranslating: Bool = false
 
     private let recorder = AudioRecorder()
     private let transcriptionManager = TranscriptionManager()
+    private let translator = OllamaTranslator()
     var finalTranscriber: FinalTranscriber { transcriptionManager.final_ }
     private let hud = DictationHUD()
     private let wakeWordMonitor = WakeWordMonitor()
@@ -70,6 +73,12 @@ class DictationViewModel: ObservableObject {
         batchModel = model
         UserDefaults.standard.set(model.rawValue, forKey: "batchModel")
         Task { await transcriptionManager.updateModels(liveModel: liveModel, batchModel: model) }
+    }
+
+    func setTranslationMode(_ mode: TranslationMode) {
+        translationMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: "translationMode")
+        NSLog("DictationApp: [VM] translationMode -> %@", mode.displayName)
     }
 
     private func loadModels(liveModel: WhisperModel = .defaultLive, batchModel: WhisperModel = .defaultBatch) async {
@@ -279,15 +288,34 @@ class DictationViewModel: ObservableObject {
             }
 
             NSLog("DictationApp: [FINAL] transcription race finished, result=%d chars: '%@'", text.count, String(text.prefix(100)))
+
+            // Translation step (if enabled)
+            let mode = await MainActor.run { self?.translationMode ?? .off }
+            var finalText = text
+            if mode != .off && !text.isEmpty {
+                await MainActor.run {
+                    self?.isTranslating = true
+                    self?.hud.updateText("Translating...")
+                }
+                NSLog("DictationApp: [TRANSLATE] starting %@ for %d chars", mode.displayName, text.count)
+                if let translated = await self?.translator.translate(text, mode: mode) {
+                    finalText = translated
+                    NSLog("DictationApp: [TRANSLATE] done: %d chars", translated.count)
+                } else {
+                    NSLog("DictationApp: [TRANSLATE] failed — using original text")
+                }
+                await MainActor.run { self?.isTranslating = false }
+            }
+
             await MainActor.run {
-                if text.isEmpty {
+                if finalText.isEmpty {
                     NSLog("DictationApp: [FINAL] no text — nothing to paste")
                     self?.errorMessage = "No speech detected"
                 } else {
-                    NSLog("DictationApp: [FINAL] pasting %d chars to clipboard", text.count)
-                    self?.transcribedText = text
-                    self?.addToHistory(text)
-                    self?.copyToClipboard(text)
+                    NSLog("DictationApp: [FINAL] pasting %d chars to clipboard", finalText.count)
+                    self?.transcribedText = finalText
+                    self?.addToHistory(finalText)
+                    self?.copyToClipboard(finalText)
                     self?.pasteIntoFocusedApp()
                     self?.errorMessage = nil
                 }

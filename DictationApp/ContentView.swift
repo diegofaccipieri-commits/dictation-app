@@ -79,6 +79,24 @@ struct ContentView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
 
+            // Translation mode
+            HStack {
+                Text("Tradução:")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(width: 90, alignment: .leading)
+                Picker("", selection: Binding(
+                    get: { viewModel.translationMode },
+                    set: { viewModel.setTranslationMode($0) }
+                )) {
+                    ForEach(TranslationMode.allCases) { m in
+                        Text(m.displayName).tag(m)
+                    }
+                }
+                .pickerStyle(.menu)
+                .controlSize(.small)
+            }
+
             // Model selectors
             VStack(spacing: 4) {
                 HStack {
@@ -154,8 +172,14 @@ struct ContentView: View {
     private var statusText: String {
         if viewModel.isModelLoading { return "Loading model..." }
         if !viewModel.isModelLoaded { return "Model unavailable" }
+        if viewModel.isTranslating { return "Translating..." }
         switch viewModel.state {
-        case .idle: return viewModel.isFinalModelReady ? "Ready" : "Ready (loading Turbo...)"
+        case .idle:
+            let base = viewModel.isFinalModelReady ? "Ready" : "Ready (loading Turbo...)"
+            if viewModel.translationMode != .off {
+                return base + " · \(viewModel.translationMode.displayName)"
+            }
+            return base
         case .recording: return "Recording..."
         case .transcribing: return "Transcribing..."
         }

@@ -20,6 +20,12 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - DictationApp
+      - path: DictationApp/whisper-cli
+        type: file
+        buildPhase: resources
+      - path: DictationApp/whisper-server
+        type: file
+        buildPhase: resources
     info:
       path: DictationApp/Info.plist
       properties:
