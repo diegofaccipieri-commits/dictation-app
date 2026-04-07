@@ -32,8 +32,9 @@ class DictationHUD {
         // Resize to fit text, capped at 420px wide.
         let estimated = CGFloat(tail.count) * 7.5 + 32
         let width = min(420, max(180, estimated))
-        let origin = NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 76)
-        panel.setFrame(NSRect(origin: origin, size: NSSize(width: width, height: 48)), display: true)
+        let size = NSSize(width: width, height: 48)
+        let origin = clampToScreen(NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 76), size: size)
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
     }
 
     func hide() {
@@ -43,8 +44,20 @@ class DictationHUD {
     private func showStatus(_ state: RecordingState) {
         let view = HUDView(state: state)
         panel?.contentViewController = NSHostingController(rootView: view)
-        let origin = NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 70)
-        panel?.setFrame(NSRect(origin: origin, size: NSSize(width: 56, height: 56)), display: true)
+        let size = NSSize(width: 56, height: 56)
+        let origin = clampToScreen(NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 70), size: size)
+        panel?.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+
+    /// Clamp the HUD origin so it stays fully visible on screen.
+    private func clampToScreen(_ point: NSPoint, size: NSSize) -> NSPoint {
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(anchorPoint) }) ?? NSScreen.main else {
+            return point
+        }
+        let visible = screen.visibleFrame
+        let x = min(max(point.x, visible.minX + 4), visible.maxX - size.width - 4)
+        let y = min(max(point.y, visible.minY + 4), visible.maxY - size.height - 4)
+        return NSPoint(x: x, y: y)
     }
 
     private func createPanel() {

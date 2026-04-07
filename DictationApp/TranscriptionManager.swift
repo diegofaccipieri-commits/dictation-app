@@ -296,11 +296,25 @@ enum TextCleaner {
         return String(chars)
     }
 
+    // Phrases Whisper hallucinates when audio is silent/noisy at the end
     private static let hallucinations: [String] = [
-        "thank you", "thank you.", "thank you!", "thanks for watching",
-        "thanks for watching!", "thank you for watching", "thank you for watching.",
-        "thanks for listening", "please subscribe", "subtitles by",
-        "transcribed by", "obrigado", "obrigada", "obrigado.", "obrigada.",
+        // English
+        "thank you", "thank you.", "thank you!", "thank you so much",
+        "thanks for watching", "thanks for watching!", "thank you for watching",
+        "thank you for watching.", "thanks for listening", "thanks for listening.",
+        "please subscribe", "subtitles by", "transcribed by",
+        "like and subscribe", "see you next time", "bye bye", "bye.",
+        "ok", "ok.", "okay", "okay.", "you're welcome",
+        "i'm sorry", "sorry", "yes", "yes.", "no", "no.",
+        "hmm", "hmm.", "uh", "um", "so",
+        // Portuguese
+        "obrigado", "obrigada", "obrigado.", "obrigada.",
+        "tchau", "tchau.", "até logo", "até mais",
+        "tá bom", "tá.", "né", "então é isso",
+        "legendas por", "transcrição por",
+        // Spanish
+        "gracias", "gracias.", "adiós", "hasta luego",
+        "subtítulos por", "ok gracias",
     ]
 
     /// Join segment parts with spaces. Actual fragment merging is handled
@@ -311,15 +325,51 @@ enum TextCleaner {
 
     private static func stripHallucinations(_ text: String) -> String {
         var result = text
+        // Remove CJK characters (Japanese/Chinese/Korean hallucinations)
+        result = stripCJK(result)
+
+        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+
+        // If the entire text is a hallucination, return empty
         for phrase in hallucinations {
-            let lower = result.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             if lower == phrase { return "" }
-            if lower.hasSuffix(" " + phrase) || lower.hasSuffix(". " + phrase) {
-                result = String(result.dropLast(phrase.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if result.hasSuffix(".") || result.hasSuffix(",") { result = String(result.dropLast()) }
+        }
+
+        // Strip hallucinations from the end (Whisper adds them when audio trails off)
+        var changed = true
+        while changed {
+            changed = false
+            let currentLower = result.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            for phrase in hallucinations {
+                if currentLower.hasSuffix(" " + phrase) || currentLower.hasSuffix(". " + phrase) || currentLower.hasSuffix(", " + phrase) {
+                    result = String(result.dropLast(phrase.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Clean trailing punctuation
+                    while result.hasSuffix(".") || result.hasSuffix(",") || result.hasSuffix(" ") {
+                        result = String(result.dropLast())
+                    }
+                    changed = true
+                    NSLog("DictationApp: [CLEAN] stripped trailing hallucination: '%@'", phrase)
+                    break
+                }
             }
         }
         return result
+    }
+
+    private static func stripCJK(_ text: String) -> String {
+        // Remove CJK Unified Ideographs, Hiragana, Katakana, Hangul, and fullwidth punctuation
+        guard let regex = try? NSRegularExpression(
+            pattern: "[\\u3000-\\u303F\\u3040-\\u309F\\u30A0-\\u30FF\\u4E00-\\u9FFF\\uAC00-\\uD7AF\\uFF00-\\uFFEF]+"
+        ) else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        let cleaned = regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+        if cleaned != text {
+            NSLog("DictationApp: [CLEAN] stripped CJK hallucination: '%@' → '%@'", String(text.prefix(60)), String(cleaned.prefix(60)))
+        }
+        return cleaned
     }
 }
 

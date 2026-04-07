@@ -118,6 +118,10 @@ class WhisperCppServer {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
         body.append("auto\r\n".data(using: .utf8)!)
+        // initial prompt - guides spelling quality, biased toward Portuguese
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
+        body.append("Ditado com ortografia correta, palavras completas, pontuação adequada.\r\n".data(using: .utf8)!)
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         request.httpBody = body
@@ -187,8 +191,9 @@ class WhisperCppServer {
                     let bMisspelled = checker.checkSpelling(of: b, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
                     let joinedValid = checker.checkSpelling(of: joined, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
 
-                    // At least one fragment misspelled AND joined word is valid → merge
-                    if (aMisspelled || bMisspelled) && joinedValid {
+                    // Only merge when BOTH fragments are misspelled AND joined word is valid.
+                    // This prevents merging valid words like "verificar" + "a" → "verificara"
+                    if aMisspelled && bMisspelled && joinedValid {
                         NSLog("DictationApp: [WCPP] merged fragments: '%@' + '%@' → '%@' [%@]", a, b, joined, lang)
                         result.append(joined)
                         i += 2
