@@ -186,14 +186,18 @@ class WhisperCppServer {
                 let aLetters = a.allSatisfy { $0.isLetter }
                 let bLetters = b.allSatisfy { $0.isLetter }
 
-                if aLetters && bLetters && a.count >= 2 && b.count >= 2 {
+                if aLetters && bLetters && a.count >= 2 {
                     let aMisspelled = checker.checkSpelling(of: a, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
-                    let bMisspelled = checker.checkSpelling(of: b, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
+                    let aValid = !aMisspelled
+                    let bValid = checker.checkSpelling(of: b, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
                     let joinedValid = checker.checkSpelling(of: joined, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
 
-                    // Only merge when BOTH fragments are misspelled AND joined word is valid.
-                    // This prevents merging valid words like "verificar" + "a" → "verificara"
-                    if aMisspelled && bMisspelled && joinedValid {
+                    // Merge when joined word is valid AND first fragment is misspelled.
+                    // "confer" + "ir" → "conferir" ✓ (confer is misspelled in PT)
+                    // "verificar" + "a" → skip (verificar is valid, keep separate)
+                    // Also merge when first is valid but very short common suffix follows
+                    // and joined word is valid but ONLY if first word is not a standalone word
+                    if aMisspelled && joinedValid {
                         NSLog("DictationApp: [WCPP] merged fragments: '%@' + '%@' → '%@' [%@]", a, b, joined, lang)
                         result.append(joined)
                         i += 2

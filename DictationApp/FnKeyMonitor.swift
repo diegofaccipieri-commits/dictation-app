@@ -1,19 +1,27 @@
 import CoreGraphics
 import AppKit
 
-// Detects double-tap of the fn key via CGEventTap.
-// fn key sends flagsChanged events with maskSecondaryFn flag, NOT keyDown.
+// Detects double-tap of a configurable modifier key via CGEventTap.
+// Default: fn key. User can change to Right Control, Right Option, etc.
 class FnKeyMonitor {
     var onDoubleTap: (() -> Void)?
     var onEscape: (() -> Void)?
 
-    // When true, a single fn press fires onDoubleTap immediately (used while recording).
+    // When true, a single press fires onDoubleTap immediately (used while recording).
     var isRecording: Bool = false
+
+    // The key to double-tap (persisted in UserDefaults)
+    var doubleTapKey: DoubleTapKey = DoubleTapKey(rawValue: UserDefaults.standard.string(forKey: "doubleTapKey") ?? "") ?? .fn {
+        didSet {
+            UserDefaults.standard.set(doubleTapKey.rawValue, forKey: "doubleTapKey")
+            NSLog("DictationApp: doubleTapKey changed to %@", doubleTapKey.displayName)
+        }
+    }
 
     private var eventTap: CFMachPort?
     private var watchdog: DispatchSourceTimer?
-    private var lastFnPressTime: TimeInterval = 0
-    private var fnIsDown: Bool = false
+    private var lastKeyPressTime: TimeInterval = 0
+    private var keyIsDown: Bool = false
     private let doubleTapInterval: TimeInterval = 0.5
     private let escKeyCode: CGKeyCode = 53
 
@@ -39,7 +47,7 @@ class FnKeyMonitor {
             return
         }
 
-        NSLog("DictationApp: fn monitor started")
+        NSLog("DictationApp: fn monitor started (key: %@)", doubleTapKey.displayName)
         eventTap = tap
         let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
@@ -59,9 +67,6 @@ class FnKeyMonitor {
 
     // MARK: - Watchdog
 
-    // Runs on a background thread every 300ms.
-    // macOS disables the event tap if the main thread is busy during audio setup.
-    // This re-enables it automatically so fn fn keeps working after recording starts.
     private func startWatchdog() {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "com.dictation.tap-watchdog"))
         timer.schedule(deadline: .now() + .milliseconds(300), repeating: .milliseconds(300))
@@ -90,32 +95,32 @@ class FnKeyMonitor {
             return Unmanaged.passUnretained(event)
         }
 
-        let fnDown = event.flags.contains(.maskSecondaryFn)
+        let keyDown = doubleTapKey.isDown(in: event)
 
-        if fnDown && !fnIsDown {
-            fnIsDown = true
+        if keyDown && !keyIsDown {
+            keyIsDown = true
 
-            // While recording: single fn press stops — no double-tap needed.
+            // While recording: single press stops — no double-tap needed.
             if isRecording {
-                fnIsDown = false
-                lastFnPressTime = 0
+                keyIsDown = false
+                lastKeyPressTime = 0
                 DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
                 return Unmanaged.passUnretained(event)
             }
 
             // While idle: require double-tap to start.
             let now = ProcessInfo.processInfo.systemUptime
-            let delta = now - lastFnPressTime
+            let delta = now - lastKeyPressTime
             if delta < doubleTapInterval {
-                lastFnPressTime = 0
-                fnIsDown = false
+                lastKeyPressTime = 0
+                keyIsDown = false
                 NSLog("DictationApp: double-tap → start")
                 DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
             } else {
-                lastFnPressTime = now
+                lastKeyPressTime = now
             }
-        } else if !fnDown {
-            fnIsDown = false
+        } else if !keyDown {
+            keyIsDown = false
         }
 
         return Unmanaged.passUnretained(event)

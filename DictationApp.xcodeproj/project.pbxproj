@@ -27,6 +27,7 @@
 		E26CEF7EE43878A9BF34BED9 /* RecordingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */; };
 		AA1111111111111111111111 /* OllamaTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2222222222222222222222 /* OllamaTranslator.swift */; };
 		AA3333333333333333333333 /* TranslationMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4444444444444444444444 /* TranslationMode.swift */; };
+		BB1111111111111111111111 /* DoubleTapKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2222222222222222222222 /* DoubleTapKey.swift */; };
 		AA5555555555555555555555 /* whisper-server in Resources */ = {isa = PBXBuildFile; fileRef = AA6666666666666666666666 /* whisper-server */; };
 		AA7777777777777777777777 /* whisper-cli in Resources */ = {isa = PBXBuildFile; fileRef = 136F800BA7DE08E3D2BEE869 /* whisper-cli */; };
 /* End PBXBuildFile section */
@@ -53,6 +54,7 @@
 		C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordMonitor.swift; sourceTree = "<group>"; };
 		AA2222222222222222222222 /* OllamaTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaTranslator.swift; sourceTree = "<group>"; };
 		AA4444444444444444444444 /* TranslationMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationMode.swift; sourceTree = "<group>"; };
+		BB2222222222222222222222 /* DoubleTapKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleTapKey.swift; sourceTree = "<group>"; };
 		AA6666666666666666666666 /* whisper-server */ = {isa = PBXFileReference; path = "whisper-server"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -98,6 +100,7 @@
 				136F800BA7DE08E3D2BEE869 /* whisper-cli */,
 				ABDE54AB2A7F063EC484D388 /* WhisperCpp.swift */,
 				8C9115276316585237DB37AB /* WhisperModel.swift */,
+				BB2222222222222222222222 /* DoubleTapKey.swift */,
 				AA2222222222222222222222 /* OllamaTranslator.swift */,
 				AA4444444444444444444444 /* TranslationMode.swift */,
 				AA6666666666666666666666 /* whisper-server */,
@@ -204,6 +207,7 @@
 				812119C11B13B90BFE27BF83 /* WakeWordMonitor.swift in Sources */,
 				27EAC0BF7D7E0B7639CF270B /* WhisperCpp.swift in Sources */,
 				E0673111C04A99474760C52B /* WhisperModel.swift in Sources */,
+				BB1111111111111111111111 /* DoubleTapKey.swift in Sources */,
 				AA1111111111111111111111 /* OllamaTranslator.swift in Sources */,
 				AA3333333333333333333333 /* TranslationMode.swift in Sources */,
 			);

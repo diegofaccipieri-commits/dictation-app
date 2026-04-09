@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import KeyboardShortcuts
 import SwiftUI
 
 @MainActor
@@ -8,7 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover?
     let viewModel = DictationViewModel()
     private var cancellables = Set<AnyCancellable>()
-    private let fnMonitor = FnKeyMonitor()
+    let fnMonitor = FnKeyMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Accessory policy: app name visible in menu bar but never steals keyboard focus.
@@ -35,7 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        let contentView = ContentView(viewModel: viewModel)
+        let contentView = ContentView(viewModel: viewModel, fnMonitor: fnMonitor)
         let popover = NSPopover()
         popover.contentSize = NSSize(width: 360, height: 260)
         popover.behavior = .transient
@@ -60,6 +61,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.viewModel.toggle()
         }
         fnMonitor.onEscape = { [weak self] in self?.viewModel.cancel() }
+
+        // Global keyboard shortcut (configurable by user)
+        KeyboardShortcuts.onKeyUp(for: .toggleDictation) { [weak self] in
+            NSLog("DictationApp: keyboard shortcut fired → calling toggle()")
+            self?.viewModel.toggle()
+        }
 
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         let trusted = AXIsProcessTrustedWithOptions(options)

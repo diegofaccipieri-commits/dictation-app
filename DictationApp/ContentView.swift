@@ -1,7 +1,10 @@
+import KeyboardShortcuts
 import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var viewModel: DictationViewModel
+    var fnMonitor: FnKeyMonitor?
+    @State private var selectedKey: DoubleTapKey = DoubleTapKey(rawValue: UserDefaults.standard.string(forKey: "doubleTapKey") ?? "") ?? .fn
 
     var body: some View {
         VStack(spacing: 12) {
@@ -157,8 +160,26 @@ struct ContentView: View {
                 .cornerRadius(6)
             }
 
+            // Double-tap key selector
             HStack {
-                Text("Shortcut: fn fn  •  ESC to cancel")
+                Text("Double-tap:")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(width: 90, alignment: .leading)
+                Picker("", selection: $selectedKey) {
+                    ForEach(DoubleTapKey.allCases) { key in
+                        Text(key.displayName).tag(key)
+                    }
+                }
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .onChange(of: selectedKey) { newKey in
+                    fnMonitor?.doubleTapKey = newKey
+                }
+            }
+
+            HStack {
+                Text("\(selectedKey.displayName) \(selectedKey.displayName) to record  •  ESC to cancel")
                 Spacer()
                 Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
             }
