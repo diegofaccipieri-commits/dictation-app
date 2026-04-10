@@ -62,33 +62,31 @@ class WhisperCppServer {
     }
 
     /// Wait for the server to be ready (model loaded).
-    func waitUntilReady(timeout: TimeInterval = 120) -> Bool {
+    func waitUntilReady(timeout: TimeInterval = 120) async -> Bool {
         let start = Date()
         let url = URL(string: "http://127.0.0.1:\(port)/health")!
         while Date().timeIntervalSince(start) < timeout {
             var request = URLRequest(url: url)
             request.timeoutInterval = 2
-            let semaphore = DispatchSemaphore(value: 0)
-            var ok = false
-            URLSession.shared.dataTask(with: request) { _, response, _ in
-                if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                    ok = true
-                }
-                semaphore.signal()
-            }.resume()
-            semaphore.wait()
+            let ok: Bool
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                ok = (response as? HTTPURLResponse)?.statusCode == 200
+            } catch {
+                ok = false
+            }
             if ok {
                 NSLog("DictationApp: [WCPP] server ready (%.1fs)", Date().timeIntervalSince(start))
                 return true
             }
-            Thread.sleep(forTimeInterval: 1)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
         NSLog("DictationApp: [WCPP] server not ready after %.0fs", timeout)
         return false
     }
 
     /// Transcribe 16kHz mono Float samples via HTTP POST to the server.
-    func transcribe(samples: [Float]) -> String {
+    func transcribe(samples: [Float]) async -> String {
         NSLog("DictationApp: [WCPP] transcribing %d samples (%.1fs) via server",
               samples.count, Double(samples.count) / 16000.0)
 
@@ -126,19 +124,15 @@ class WhisperCppServer {
 
         request.httpBody = body
 
-        // Synchronous request
-        let semaphore = DispatchSemaphore(value: 0)
         var responseText = ""
-        URLSession.shared.dataTask(with: request) { data, _, error in
-            if let data, let text = String(data: data, encoding: .utf8) {
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            if let text = String(data: data, encoding: .utf8) {
                 responseText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            if let error {
-                NSLog("DictationApp: [WCPP] HTTP error: %@", error.localizedDescription)
-            }
-            semaphore.signal()
-        }.resume()
-        semaphore.wait()
+        } catch {
+            NSLog("DictationApp: [WCPP] HTTP error: %@", error.localizedDescription)
+        }
 
         // Join newline-separated segments with spaces, then merge tokenizer splits via spell checker.
         let lines = responseText.components(separatedBy: "\n")

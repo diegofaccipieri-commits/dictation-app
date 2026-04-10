@@ -153,7 +153,7 @@ class TranscriptionManager {
         do {
             let server = try WhisperCppServer(modelPath: modelPath, serverPath: serverPath)
             server.start()
-            let ready = server.waitUntilReady(timeout: 120)
+            let ready = await server.waitUntilReady(timeout: 120)
             if ready {
                 whisperCpp = server
             } else {
@@ -171,7 +171,7 @@ class TranscriptionManager {
         if let wcpp = whisperCpp {
             NSLog("DictationApp: [TRANSCRIBE] using whisper.cpp server...")
             let start = ProcessInfo.processInfo.systemUptime
-            let text = wcpp.transcribe(samples: samples)
+            let text = await wcpp.transcribe(samples: samples)
             let elapsed = ProcessInfo.processInfo.systemUptime - start
             NSLog("DictationApp: [TRANSCRIBE] whisper.cpp done: %d chars in %.1fs", text.count, elapsed)
             return text
@@ -270,12 +270,19 @@ enum TextCleaner {
         ("period", "."),                ("dot", "."),
     ]
 
-    private static func applyPunctuationCommands(_ text: String) -> String {
-        var result = text
-        for (word, symbol) in punctuationCommands {
+    // Pre-compiled regexes — built once, reused on every transcription.
+    private static let punctuationRegexes: [(regex: NSRegularExpression, symbol: String)] = {
+        punctuationCommands.compactMap { (word, symbol) in
             let escaped = NSRegularExpression.escapedPattern(for: word)
             let pattern = "(?i)(^|\\s)\(escaped)[.,!?;:]*(?=[\\s.,!?;:]|$)"
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+            return (regex, symbol)
+        }
+    }()
+
+    private static func applyPunctuationCommands(_ text: String) -> String {
+        var result = text
+        for (regex, symbol) in punctuationRegexes {
             let range = NSRange(result.startIndex..., in: result)
             result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: symbol)
         }
