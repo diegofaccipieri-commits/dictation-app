@@ -203,6 +203,7 @@ struct ContentView: View {
             return base
         case .recording: return "Recording..."
         case .transcribing: return "Transcribing..."
+        case .correcting: return "Correcting..."
         }
     }
 
@@ -213,6 +214,7 @@ struct ContentView: View {
         case .idle: return .secondary
         case .recording: return .red
         case .transcribing: return .orange
+        case .correcting: return .green
         }
     }
 
@@ -221,6 +223,7 @@ struct ContentView: View {
         case .idle: return "mic.fill"
         case .recording: return "stop.fill"
         case .transcribing: return "ellipsis"
+        case .correcting: return "checkmark"
         }
     }
 
@@ -229,6 +232,7 @@ struct ContentView: View {
         case .idle: return "Start Dictation"
         case .recording: return "Stop"
         case .transcribing: return "Transcribing..."
+        case .correcting: return "Correcting..."
         }
     }
 

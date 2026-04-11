@@ -110,6 +110,10 @@ private struct HUDView: View {
             case .transcribing:
                 ProgressView()
                     .scaleEffect(0.8)
+            case .correcting:
+                Image(systemName: "checkmark.circle")
+                    .foregroundColor(.green)
+                    .font(.system(size: 20))
             case .idle:
                 EmptyView()
             }

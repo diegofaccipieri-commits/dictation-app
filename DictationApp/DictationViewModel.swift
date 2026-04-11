@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AVFoundation
 import CoreGraphics
+import ApplicationServices
 
 @MainActor
 class DictationViewModel: ObservableObject {
@@ -113,7 +114,7 @@ class DictationViewModel: ObservableObject {
             startRecording()
         case .recording:
             stopRecording()
-        case .transcribing:
+        case .transcribing, .correcting:
             break
         }
     }
@@ -254,6 +255,17 @@ class DictationViewModel: ObservableObject {
             return
         }
 
+        // Instant paste: show streaming result immediately, correct silently when whisper.cpp finishes.
+        // Skip when translation is active (fallback would be in wrong language).
+        let instantFallback = (translationMode == .off && !fallback.isEmpty) ? fallback : ""
+        if !instantFallback.isEmpty {
+            copyToClipboard(instantFallback)
+            pasteIntoFocusedApp()
+            state = .correcting
+            hud.show(state: .correcting, near: NSEvent.mouseLocation)
+            NSLog("DictationApp: [FINAL] instant paste: %d chars — whisper.cpp correcting in background", instantFallback.count)
+        }
+
         let manager = transcriptionManager
         NSLog("DictationApp: [FINAL] isFinalModelReady=%d, starting Turbo audioArrays transcription (45s timeout)", isFinalModelReady ? 1 : 0)
         transcriptionTask = Task.detached(priority: .userInitiated) { [weak self] in
@@ -308,22 +320,79 @@ class DictationViewModel: ObservableObject {
             }
 
             await MainActor.run {
+                guard let self else { return }
                 if finalText.isEmpty {
                     NSLog("DictationApp: [FINAL] no text — nothing to paste")
-                    self?.errorMessage = "No speech detected"
+                    if instantFallback.isEmpty { self.errorMessage = "No speech detected" }
+                } else if !instantFallback.isEmpty {
+                    // Correct the instant-pasted text
+                    self.transcribedText = finalText
+                    self.addToHistory(finalText)
+                    if finalText != instantFallback {
+                        NSLog("DictationApp: [FINAL] correcting instant paste: %d → %d chars", instantFallback.count, finalText.count)
+                        self.replaceLastPasted(count: instantFallback.count, with: finalText)
+                    } else {
+                        NSLog("DictationApp: [FINAL] correction identical — no replace needed")
+                    }
                 } else {
+                    // No instant paste was done — paste normally now
                     NSLog("DictationApp: [FINAL] pasting %d chars to clipboard", finalText.count)
-                    self?.transcribedText = finalText
-                    self?.addToHistory(finalText)
-                    self?.copyToClipboard(finalText)
-                    self?.pasteIntoFocusedApp()
-                    self?.errorMessage = nil
+                    self.transcribedText = finalText
+                    self.addToHistory(finalText)
+                    self.copyToClipboard(finalText)
+                    self.pasteIntoFocusedApp()
+                    self.errorMessage = nil
                 }
-                self?.state = .idle
-                self?.hud.hide()
+                self.state = .idle
+                self.hud.hide()
                 NSLog("DictationApp: [FINAL] state -> idle, done")
-                if self?.isWakeWordEnabled == true { self?.wakeWordMonitor.start() }
+                if self.isWakeWordEnabled { self.wakeWordMonitor.start() }
             }
+        }
+    }
+
+    /// Replace the last N pasted characters with new text using the Accessibility API.
+    /// After Cmd+V paste, the cursor sits right after the pasted text — so we select
+    /// the N chars immediately before the cursor and overwrite them.
+    private func replaceLastPasted(count: Int, with newText: String) {
+        let sysWide = AXUIElementCreateSystemWide()
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(sysWide, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+              let focused = focusedRef else {
+            NSLog("DictationApp: [CORRECT] AX: no focused element — skipping correction")
+            return
+        }
+        let element = focused as! AXUIElement
+
+        // Get current selection (cursor position after paste)
+        var selRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selRef) == .success,
+              let selVal = selRef else {
+            NSLog("DictationApp: [CORRECT] AX: cannot read cursor position — skipping correction")
+            return
+        }
+        var curRange = CFRange()
+        AXValueGetValue(selVal as! AXValue, .cfRange, &curRange)
+
+        guard curRange.location >= count else {
+            NSLog("DictationApp: [CORRECT] AX: cursor (%d) too close to start for count=%d — skipping", curRange.location, count)
+            return
+        }
+
+        // Select the previously pasted text
+        var replaceRange = CFRange(location: curRange.location - count, length: count)
+        guard let axRange = AXValueCreate(.cfRange, &replaceRange) else { return }
+        AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange)
+
+        // Replace selected text directly (no clipboard roundtrip)
+        let result = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, newText as CFString)
+        if result == .success {
+            NSLog("DictationApp: [CORRECT] AX replace succeeded")
+        } else {
+            // AX write not supported in this app — fall back to clipboard paste
+            NSLog("DictationApp: [CORRECT] AX write failed (%d) — fallback to Cmd+V", result.rawValue)
+            copyToClipboard(newText)
+            pasteIntoFocusedApp()
         }
     }
 
