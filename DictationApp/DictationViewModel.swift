@@ -367,8 +367,8 @@ class DictationViewModel: ObservableObject {
         }
     }
 
-    /// Smart correction: append missing tail if whisper.cpp just got more words,
-    /// or undo + re-paste when transcriptions differ from the start.
+    /// Smart correction: append missing tail if whisper.cpp got more words,
+    /// or undo + re-paste when the transcriptions are fundamentally different.
     private func applyCorrection(fallback: String, finalText: String, element: AXUIElement?, anchorStart: Int) {
         if finalText == fallback {
             NSLog("DictationApp: [CORRECT] identical — no correction needed")
@@ -382,18 +382,17 @@ class DictationViewModel: ObservableObject {
             targetApp.activate(options: .activateIgnoringOtherApps)
         }
 
-        // Case 1: whisper.cpp got the beginning right but captured more words.
-        // Cursor is at end of pasted fallback — just append the tail.
-        if finalText.hasPrefix(fallback) {
-            let tail = String(finalText.dropFirst(fallback.count))
+        // Word-level prefix match: compare ignoring punctuation and diacritics so that
+        // minor WhisperKit vs whisper.cpp differences (commas, accents) don't break detection.
+        // If whisper.cpp got the same words + more, just paste the tail.
+        if finalText.count > fallback.count, let tail = findTail(fallback: fallback, in: finalText) {
             NSLog("DictationApp: [CORRECT] append tail (%d chars): '%@'", tail.count, String(tail.prefix(80)))
             copyToClipboard(tail)
             pasteIntoFocusedApp()
             return
         }
 
-        // Case 2: Texts differ (WhisperKit hallucinated punctuation, wrong words, etc.)
-        // Undo the instant paste with Cmd+Z, then paste the correct text.
+        // Completely different transcription — undo + re-paste correct text.
         NSLog("DictationApp: [CORRECT] undo+paste: %d → %d chars", fallback.count, finalText.count)
         sendCmdKey(0x06) // Cmd+Z at t+0.1s
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -401,6 +400,37 @@ class DictationViewModel: ObservableObject {
             self.copyToClipboard(finalText)
             self.pasteIntoFocusedApp() // fires at t+0.4s
         }
+    }
+
+    /// Find the tail of finalText that comes after the words shared with fallback.
+    /// Strips punctuation and diacritics for word comparison to handle minor differences.
+    private func findTail(fallback: String, in finalText: String) -> String? {
+        let fallbackWords = fallback.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        let finalWords   = finalText.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        guard fallbackWords.count < finalWords.count else { return nil }
+
+        let strip: (String) -> String = {
+            $0.trimmingCharacters(in: .punctuationCharacters)
+              .lowercased()
+              .folding(options: .diacriticInsensitive, locale: nil)
+        }
+
+        // All fallback words must match the leading words of finalText.
+        let matched = zip(fallbackWords, finalWords.prefix(fallbackWords.count))
+            .allSatisfy { strip($0.0) == strip($0.1) }
+        guard matched else { return nil }
+
+        // Walk finalText character-by-character to find where the matched words end,
+        // preserving original spacing/punctuation for the tail.
+        var idx = finalText.startIndex
+        var wordsConsumed = 0
+        while wordsConsumed < fallbackWords.count, idx < finalText.endIndex {
+            while idx < finalText.endIndex, finalText[idx].isWhitespace { idx = finalText.index(after: idx) }
+            while idx < finalText.endIndex, !finalText[idx].isWhitespace { idx = finalText.index(after: idx) }
+            wordsConsumed += 1
+        }
+        guard idx < finalText.endIndex else { return nil }
+        return String(finalText[idx...]) // leading space + remaining words
     }
 
     private func sendCmdKey(_ keyCode: CGKeyCode) {
