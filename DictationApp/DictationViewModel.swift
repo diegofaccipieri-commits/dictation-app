@@ -258,12 +258,33 @@ class DictationViewModel: ObservableObject {
         // Instant paste: show streaming result immediately, correct silently when whisper.cpp finishes.
         // Skip when translation is active (fallback would be in wrong language).
         let instantFallback = (translationMode == .off && !fallback.isEmpty) ? fallback : ""
+        var savedAXElement: AXUIElement? = nil
+        var anchorStart: Int = -1
+
         if !instantFallback.isEmpty {
+            // Save target element and cursor position BEFORE the paste happens.
+            // After paste the cursor will be at anchorStart + instantFallback.count,
+            // so we can reliably select exactly what was pasted for correction.
+            let sysWide = AXUIElementCreateSystemWide()
+            var focusedRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(sysWide, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+               let focused = focusedRef {
+                savedAXElement = (focused as! AXUIElement)
+                var selRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(savedAXElement!, kAXSelectedTextRangeAttribute as CFString, &selRef) == .success,
+                   let selVal = selRef {
+                    var curRange = CFRange()
+                    AXValueGetValue(selVal as! AXValue, .cfRange, &curRange)
+                    anchorStart = curRange.location
+                    NSLog("DictationApp: [FINAL] saved anchor: anchorStart=%d", anchorStart)
+                }
+            }
+
             copyToClipboard(instantFallback)
             pasteIntoFocusedApp()
             state = .correcting
             hud.show(state: .correcting, near: NSEvent.mouseLocation)
-            NSLog("DictationApp: [FINAL] instant paste: %d chars — whisper.cpp correcting in background", instantFallback.count)
+            NSLog("DictationApp: [FINAL] instant paste: %d chars at anchor %d — whisper.cpp correcting in background", instantFallback.count, anchorStart)
         }
 
         let manager = transcriptionManager
@@ -330,7 +351,7 @@ class DictationViewModel: ObservableObject {
                     self.addToHistory(finalText)
                     if finalText != instantFallback {
                         NSLog("DictationApp: [FINAL] correcting instant paste: %d → %d chars", instantFallback.count, finalText.count)
-                        self.replaceLastPasted(count: instantFallback.count, with: finalText)
+                        self.replaceLastPasted(count: instantFallback.count, with: finalText, element: savedAXElement, anchorStart: anchorStart)
                     } else {
                         NSLog("DictationApp: [FINAL] correction identical — no replace needed")
                     }
@@ -351,46 +372,68 @@ class DictationViewModel: ObservableObject {
         }
     }
 
-    /// Replace the last N pasted characters with new text using the Accessibility API.
-    /// After Cmd+V paste, the cursor sits right after the pasted text — so we select
-    /// the N chars immediately before the cursor and overwrite them.
-    private func replaceLastPasted(count: Int, with newText: String) {
-        let sysWide = AXUIElementCreateSystemWide()
-        var focusedRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(sysWide, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-              let focused = focusedRef else {
-            NSLog("DictationApp: [CORRECT] AX: no focused element — skipping correction")
-            return
-        }
-        let element = focused as! AXUIElement
-
-        // Get current selection (cursor position after paste)
-        var selRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selRef) == .success,
-              let selVal = selRef else {
-            NSLog("DictationApp: [CORRECT] AX: cannot read cursor position — skipping correction")
-            return
-        }
-        var curRange = CFRange()
-        AXValueGetValue(selVal as! AXValue, .cfRange, &curRange)
-
-        guard curRange.location >= count else {
-            NSLog("DictationApp: [CORRECT] AX: cursor (%d) too close to start for count=%d — skipping", curRange.location, count)
+    /// Replace the instant-pasted streaming text with the final whisper.cpp result.
+    /// Uses the saved AX element and anchor position for reliable targeting.
+    private func replaceLastPasted(count: Int, with newText: String, element: AXUIElement?, anchorStart: Int) {
+        guard let element else {
+            NSLog("DictationApp: [CORRECT] no saved element — paste appended")
+            copyToClipboard(newText)
+            pasteIntoFocusedApp()
             return
         }
 
-        // Select the previously pasted text
-        var replaceRange = CFRange(location: curRange.location - count, length: count)
-        guard let axRange = AXValueCreate(.cfRange, &replaceRange) else { return }
-        AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange)
+        // Re-activate the target app so Cmd+V (fallback) goes to the right place.
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        if pid > 0, let targetApp = NSRunningApplication(processIdentifier: pid) {
+            NSLog("DictationApp: [CORRECT] activating target app (pid %d)", pid)
+            targetApp.activate(options: .activateIgnoringOtherApps)
+        }
 
-        // Replace selected text directly (no clipboard roundtrip)
-        let result = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, newText as CFString)
-        if result == .success {
-            NSLog("DictationApp: [CORRECT] AX replace succeeded")
+        // Determine selection range: use saved anchor if available (reliable),
+        // else fall back to cursor-relative (less reliable if user moved cursor).
+        let location: Int
+        if anchorStart >= 0 {
+            location = anchorStart
+            NSLog("DictationApp: [CORRECT] using anchor: loc=%d len=%d", anchorStart, count)
         } else {
-            // AX write not supported in this app — fall back to clipboard paste
-            NSLog("DictationApp: [CORRECT] AX write failed (%d) — fallback to Cmd+V", result.rawValue)
+            var selRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selRef) == .success,
+                  let selVal = selRef else {
+                NSLog("DictationApp: [CORRECT] AX: no cursor — fallback paste")
+                copyToClipboard(newText)
+                pasteIntoFocusedApp()
+                return
+            }
+            var curRange = CFRange()
+            AXValueGetValue(selVal as! AXValue, .cfRange, &curRange)
+            guard curRange.location >= count else {
+                NSLog("DictationApp: [CORRECT] cursor too close to start — fallback paste")
+                copyToClipboard(newText)
+                pasteIntoFocusedApp()
+                return
+            }
+            location = curRange.location - count
+            NSLog("DictationApp: [CORRECT] cursor-relative: loc=%d len=%d", location, count)
+        }
+
+        // Select the range of the instant-pasted text.
+        var replaceRange = CFRange(location: location, length: count)
+        guard let axRange = AXValueCreate(.cfRange, &replaceRange) else {
+            copyToClipboard(newText)
+            pasteIntoFocusedApp()
+            return
+        }
+        let selResult = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange)
+        NSLog("DictationApp: [CORRECT] set selection: %d", selResult.rawValue)
+
+        // Try direct AX text write (fastest, no visual flicker).
+        let writeResult = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, newText as CFString)
+        if writeResult == .success {
+            NSLog("DictationApp: [CORRECT] AX direct write succeeded")
+        } else {
+            // AX write blocked — use Cmd+V to replace the selection we just set.
+            NSLog("DictationApp: [CORRECT] AX write failed (%d) — using Cmd+V on selection", writeResult.rawValue)
             copyToClipboard(newText)
             pasteIntoFocusedApp()
         }
