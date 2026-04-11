@@ -41,6 +41,8 @@ class WhisperCppServer {
             "--port", String(port),
             "-t", String(maxThreads),
             "-fa",              // flash attention — faster inference on Apple Silicon
+            "--beam-size", "1", // greedy decoding — ~50% faster, quality same for dictation
+            "--best-of", "1",   // no sampling candidates
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -180,17 +182,16 @@ class WhisperCppServer {
                 let aLetters = a.allSatisfy { $0.isLetter }
                 let bLetters = b.allSatisfy { $0.isLetter }
 
-                if aLetters && bLetters && a.count >= 2 {
-                    let aMisspelled = checker.checkSpelling(of: a, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
-                    let aValid = !aMisspelled
-                    let bValid = checker.checkSpelling(of: b, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
-                    let joinedValid = checker.checkSpelling(of: joined, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
+                // Skip spell-checker entirely when words are long — fragments are
+                // almost always short (< 7 chars). Long words are almost never split
+                // by the tokenizer, so the 3 NSSpellChecker IPC calls are wasted.
+                let couldBeFragment = aLetters && bLetters && a.count >= 2
+                    && a.count <= 7 && joined.count <= 14
 
-                    // Merge when joined word is valid AND first fragment is misspelled.
-                    // "confer" + "ir" → "conferir" ✓ (confer is misspelled in PT)
-                    // "verificar" + "a" → skip (verificar is valid, keep separate)
-                    // Also merge when first is valid but very short common suffix follows
-                    // and joined word is valid but ONLY if first word is not a standalone word
+                if couldBeFragment {
+                    let aMisspelled = checker.checkSpelling(of: a, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
+                    let joinedValid = aMisspelled && checker.checkSpelling(of: joined, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
+
                     if aMisspelled && joinedValid {
                         NSLog("DictationApp: [WCPP] merged fragments: '%@' + '%@' → '%@' [%@]", a, b, joined, lang)
                         result.append(joined)
