@@ -349,12 +349,7 @@ class DictationViewModel: ObservableObject {
                     // Correct the instant-pasted text
                     self.transcribedText = finalText
                     self.addToHistory(finalText)
-                    if finalText != instantFallback {
-                        NSLog("DictationApp: [FINAL] correcting instant paste: %d → %d chars", instantFallback.count, finalText.count)
-                        self.replaceLastPasted(count: instantFallback.count, with: finalText, element: savedAXElement, anchorStart: anchorStart)
-                    } else {
-                        NSLog("DictationApp: [FINAL] correction identical — no replace needed")
-                    }
+                    self.applyCorrection(fallback: instantFallback, finalText: finalText, element: savedAXElement, anchorStart: anchorStart)
                 } else {
                     // No instant paste was done — paste normally now
                     NSLog("DictationApp: [FINAL] pasting %d chars to clipboard", finalText.count)
@@ -370,6 +365,38 @@ class DictationViewModel: ObservableObject {
                 if self.isWakeWordEnabled { self.wakeWordMonitor.start() }
             }
         }
+    }
+
+    /// Smart correction: append missing tail if whisper.cpp just got more words,
+    /// or do a full replacement if the transcription differs from the start.
+    private func applyCorrection(fallback: String, finalText: String, element: AXUIElement?, anchorStart: Int) {
+        if finalText == fallback {
+            NSLog("DictationApp: [CORRECT] identical — no correction needed")
+            return
+        }
+
+        // Common case: whisper.cpp transcribed the full audio including the tail
+        // that WhisperKit missed. Cursor is already at end of pasted fallback,
+        // so just paste the missing suffix directly.
+        if finalText.hasPrefix(fallback) {
+            let tail = String(finalText.dropFirst(fallback.count))
+            NSLog("DictationApp: [CORRECT] appending tail (%d chars): '%@'", tail.count, String(tail.prefix(80)))
+            // Re-activate target app so Cmd+V lands in the right window.
+            if let element {
+                var pid: pid_t = 0
+                AXUIElementGetPid(element, &pid)
+                if pid > 0, let targetApp = NSRunningApplication(processIdentifier: pid) {
+                    targetApp.activate(options: .activateIgnoringOtherApps)
+                }
+            }
+            copyToClipboard(tail)
+            pasteIntoFocusedApp()
+            return
+        }
+
+        // Texts differ from the beginning — full replacement via AX.
+        NSLog("DictationApp: [CORRECT] full replacement: %d → %d chars", fallback.count, finalText.count)
+        replaceLastPasted(count: fallback.count, with: finalText, element: element, anchorStart: anchorStart)
     }
 
     /// Replace the instant-pasted streaming text with the final whisper.cpp result.
