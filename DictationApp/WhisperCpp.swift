@@ -32,7 +32,7 @@ class WhisperCppServer {
     func start() {
         guard serverProcess == nil else { return }
 
-        let maxThreads = max(1, min(8, ProcessInfo.processInfo.processorCount - 2))
+        let maxThreads = 4 // M1 Pro: Metal handles inference, 4 CPU threads optimal
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: serverPath)
@@ -161,12 +161,30 @@ class WhisperCppServer {
     /// Merge tokenizer-split words using macOS spell checker + language detection.
     /// Detects the dominant language first, then checks spelling in that language.
     /// Merges when at least one fragment is misspelled and the joined word is valid.
+    // Suffixes/endings that never start a standalone word — bypass spell check for these.
+    private static let knownSuffixes: Set<String> = [
+        // Portuguese endings
+        "ção", "ções", "são", "sões", "nhão", "nhões", "agem", "mente",
+        "ário", "ária", "ários", "árias", "dade", "tura",
+        "amente", "iamente",                    // obrigatoriamente, rapidamente, etc.
+        "eiro", "eira", "eiros", "eiras",
+        "entes", "ores", "oras", "idos", "idas",
+        "ando", "endo", "indo",
+        "ingo", "ingos", "inga", "ingas",       // domingo, flamingo, etc.
+        "inho", "inha", "inhos", "inhas",
+        "zinho", "zinha", "zinhos", "zinhas",
+        "ado", "ada", "ados", "adas",           // bacharelado, qualificado, etc.
+        "ificado", "ificada", "ificados", "ificadas",
+        "quela", "quele", "quelas", "queles",   // naquela, naquele (contrações)
+        // English endings
+        "tion", "tions", "ness", "ment", "ments",
+    ]
+
     static func mergeFragmentedWords(_ text: String) -> String {
         let checker = NSSpellChecker.shared
         let words = text.components(separatedBy: " ")
         guard words.count >= 2 else { return text }
 
-        // Detect dominant language so we check spelling in the right dictionary
         let lang = detectLanguage(text)
         NSLog("DictationApp: [WCPP] mergeFragmentedWords: detected language '%@'", lang)
 
@@ -178,25 +196,30 @@ class WhisperCppServer {
                 let b = words[i + 1]
                 let joined = a + b
 
-                // Only attempt merge when both fragments look like word parts (letters only, 2+ chars)
                 let aLetters = a.allSatisfy { $0.isLetter }
                 let bLetters = b.allSatisfy { $0.isLetter }
+                let bLower = b.lowercased()
+                let bIsSuffix = knownSuffixes.contains(bLower)
 
-                // Skip spell-checker entirely when words are long — fragments are
-                // almost always short (< 7 chars). Long words are almost never split
-                // by the tokenizer, so the 3 NSSpellChecker IPC calls are wasted.
+                // Known suffix: always attempt merge (bypasses length limit and spell check on b).
+                // Regular fragment: both short, check spelling.
                 let couldBeFragment = aLetters && bLetters && a.count >= 2
-                    && a.count <= 7 && joined.count <= 14
+                    && (bIsSuffix || (a.count <= 9 && joined.count <= 18))
 
                 if couldBeFragment {
-                    let aMisspelled = checker.checkSpelling(of: a, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
-                    let joinedValid = aMisspelled && checker.checkSpelling(of: joined, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
+                    let aMisspelled = !bIsSuffix && checker.checkSpelling(of: a, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
+                    let bMisspelled = bIsSuffix || checker.checkSpelling(of: b, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
 
-                    if aMisspelled && joinedValid {
-                        NSLog("DictationApp: [WCPP] merged fragments: '%@' + '%@' → '%@' [%@]", a, b, joined, lang)
-                        result.append(joined)
-                        i += 2
-                        continue
+                    if aMisspelled || bMisspelled {
+                        // Check joined in detected language + Portuguese fallback
+                        let joinedValid = checker.checkSpelling(of: joined, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
+                            || (lang != "pt" && checker.checkSpelling(of: joined, startingAt: 0, language: "pt", wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound)
+                        if joinedValid {
+                            NSLog("DictationApp: [WCPP] merged: '%@' + '%@' → '%@' [%@]", a, b, joined, lang)
+                            result.append(joined)
+                            i += 2
+                            continue
+                        }
                     }
                 }
             }

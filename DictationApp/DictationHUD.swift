@@ -1,13 +1,15 @@
 import AppKit
 import SwiftUI
 
-// Floating HUD near the cursor — shows recording state and live transcription preview.
+// Floating HUD near the cursor — shows recording state and phase timer.
 class DictationHUD {
     private var panel: NSPanel?
     private var anchorPoint: NSPoint = .zero
+    private var phaseStart: Date = Date()
 
     func show(state: RecordingState, near point: NSPoint) {
         anchorPoint = point
+        phaseStart = Date()
         if panel == nil { createPanel() }
         showStatus(state)
         panel?.orderFrontRegardless()
@@ -15,21 +17,15 @@ class DictationHUD {
 
     func update(state: RecordingState) {
         guard let panel, panel.isVisible else { return }
+        phaseStart = Date()  // reset timer for each new phase
         showStatus(state)
     }
 
-    // Called by the streaming loop as partial text arrives.
-    // Shows a text bubble near the cursor so the user can see what's being transcribed
-    // without opening the app popover.
     func updateText(_ text: String) {
         guard let panel, panel.isVisible, !text.isEmpty else { return }
-
-        // Show only the tail so the bubble stays compact.
         let tail = text.count > 100 ? "…" + String(text.suffix(97)) : text
         let view = HUDTextView(text: tail)
         panel.contentViewController = NSHostingController(rootView: view)
-
-        // Resize to fit text, capped at 420px wide.
         let estimated = CGFloat(tail.count) * 7.5 + 32
         let width = min(420, max(180, estimated))
         let size = NSSize(width: width, height: 48)
@@ -42,14 +38,13 @@ class DictationHUD {
     }
 
     private func showStatus(_ state: RecordingState) {
-        let view = HUDView(state: state)
+        let view = HUDView(state: state, startDate: phaseStart)
         panel?.contentViewController = NSHostingController(rootView: view)
-        let size = NSSize(width: 56, height: 56)
-        let origin = clampToScreen(NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 70), size: size)
+        let size = NSSize(width: 68, height: 82)
+        let origin = clampToScreen(NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 90), size: size)
         panel?.setFrame(NSRect(origin: origin, size: size), display: true)
     }
 
-    /// Clamp the HUD origin so it stays fully visible on screen.
     private func clampToScreen(_ point: NSPoint, size: NSSize) -> NSPoint {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(anchorPoint) }) ?? NSScreen.main else {
             return point
@@ -62,7 +57,7 @@ class DictationHUD {
 
     private func createPanel() {
         let p = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 56, height: 56),
+            contentRect: NSRect(x: 0, y: 0, width: 68, height: 82),
             styleMask: [.nonactivatingPanel, .fullSizeContentView, .borderless],
             backing: .buffered,
             defer: true
@@ -97,29 +92,50 @@ private struct HUDTextView: View {
 
 private struct HUDView: View {
     let state: RecordingState
+    let startDate: Date
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(.ultraThinMaterial)
-                .shadow(radius: 4)
+        VStack(spacing: 5) {
+            ZStack {
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .shadow(radius: 4)
 
-            switch state {
-            case .recording:
-                RecordingDot()
-            case .transcribing:
-                ProgressView()
-                    .scaleEffect(0.8)
-            case .correcting:
-                Image(systemName: "checkmark.circle")
-                    .foregroundColor(.green)
-                    .font(.system(size: 20))
-            case .idle:
-                EmptyView()
+                switch state {
+                case .recording:
+                    RecordingDot()
+                case .transcribing:
+                    ProgressView()
+                        .scaleEffect(0.8)
+                case .correcting:
+                    Image(systemName: "checkmark.circle")
+                        .foregroundColor(.green)
+                        .font(.system(size: 20))
+                case .idle:
+                    EmptyView()
+                }
+            }
+            .frame(width: 48, height: 48)
+
+            if state == .recording || state == .transcribing {
+                TimelineView(.animation(minimumInterval: 1)) { context in
+                    Text(elapsed(from: startDate, to: context.date))
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(state == .recording ? .red : .orange)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                }
             }
         }
-        .frame(width: 48, height: 48)
-        .padding(4)
+        .padding(.vertical, 4)
+        .frame(width: 68, height: 82)
+    }
+
+    private func elapsed(from start: Date, to now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(start)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
 

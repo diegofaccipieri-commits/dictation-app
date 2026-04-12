@@ -1,32 +1,8 @@
 import WhisperKit
 import Foundation
 
-// Two independent actors — one per role.
-// StreamingTranscriber (small) handles live preview.
 // FinalTranscriber handles HD finalization + batch, with per-call model selection.
-
-actor StreamingTranscriber {
-    private var kit: WhisperKit?
-
-    func load() async throws {
-        NSLog("DictationApp: [STREAMING] loading small model...")
-        kit = try await WhisperKit(model: WhisperModel.small.rawValue)
-        NSLog("DictationApp: [STREAMING] small model loaded OK")
-    }
-
-    var isReady: Bool { kit != nil }
-
-    func transcribe(_ samples: [Float]) async -> String {
-        guard let kit else { return "" }
-        let results = await kit.transcribe(audioArrays: [samples], decodeOptions: decodingOptions)
-        return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
-    }
-
-    private var decodingOptions: DecodingOptions {
-        DecodingOptions(task: .transcribe, language: nil, temperature: 0.0,
-                        usePrefillPrompt: true, detectLanguage: true, noSpeechThreshold: 0.3)
-    }
-}
+// Live preview via streaming was removed in v1.22.6 — whisper.cpp server handles all transcription.
 
 actor FinalTranscriber {
     // Cache of loaded models — avoids reloading the same model twice.
@@ -105,7 +81,6 @@ actor FinalTranscriber {
 
 // Thin facade used by DictationViewModel.
 class TranscriptionManager {
-    let streaming = StreamingTranscriber()
     let final_ = FinalTranscriber()
 
     private var liveModel: WhisperModel = .defaultLive
@@ -115,18 +90,17 @@ class TranscriptionManager {
         get async { await final_.isReady }
     }
 
-    func loadModels(liveModel: WhisperModel = .defaultLive, batchModel: WhisperModel = .defaultBatch) async throws {
-        NSLog("DictationApp: [TM] loadModels: setting liveModel=%@ batchModel=%@", liveModel.displayName, batchModel.displayName)
+    func loadModels(liveModel: WhisperModel = .defaultLive, batchModel: WhisperModel = .defaultBatch) async {
+        NSLog("DictationApp: [TM] loadModels: liveModel=%@ batchModel=%@", liveModel.displayName, batchModel.displayName)
         self.liveModel = liveModel
         self.batchModel = batchModel
-        try await streaming.load()
+        // Load whisper.cpp server first — this is the primary transcription engine
+        await loadWhisperCpp()
+        // Load WhisperKit in background for batch transcription + fallback
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
-            // Load whisper.cpp first (Metal GPU, fast)
-            await self.loadWhisperCpp()
-            // Also load WhisperKit as fallback
             await self.final_.load(liveModel: liveModel, batchModel: batchModel)
-            NSLog("DictationApp: [TM] final models loaded, liveModel is now %@", self.liveModel.displayName)
+            NSLog("DictationApp: [TM] WhisperKit models loaded, liveModel=%@", liveModel.displayName)
         }
     }
 
@@ -138,10 +112,6 @@ class TranscriptionManager {
             guard let self else { return }
             await self.final_.load(liveModel: liveModel, batchModel: batchModel)
         }
-    }
-
-    func transcribeSamples(_ samples: [Float]) async -> String {
-        await streaming.transcribe(samples)
     }
 
     // whisper.cpp server for final transcription (separate process, model stays in memory)
