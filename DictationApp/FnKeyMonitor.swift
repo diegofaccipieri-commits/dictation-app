@@ -20,6 +20,7 @@ class FnKeyMonitor {
 
     private var eventTap: CFMachPort?
     private var watchdog: DispatchSourceTimer?
+    private var fnGlobalMonitor: Any?
     private var lastKeyPressTime: TimeInterval = 0
     private var keyIsDown: Bool = false
     private let doubleTapInterval: TimeInterval = 0.5
@@ -55,12 +56,21 @@ class FnKeyMonitor {
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
 
+        // Fallback for FN specifically: some setups do not deliver FN reliably via CGEvent tap.
+        fnGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.handleGlobalFlagsChanged(event: event)
+        }
+
         startWatchdog()
     }
 
     func stop() {
         watchdog?.cancel()
         watchdog = nil
+        if let monitor = fnGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+            fnGlobalMonitor = nil
+        }
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
             eventTap = nil
@@ -126,5 +136,33 @@ class FnKeyMonitor {
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func handleGlobalFlagsChanged(event: NSEvent) {
+        guard doubleTapKey == .fn else { return }
+        // 63 = fn/globe key
+        guard event.keyCode == 63 else { return }
+        let keyDown = event.modifierFlags.contains(.function)
+        if keyDown && !keyIsDown {
+            keyIsDown = true
+            if isRecording {
+                keyIsDown = false
+                lastKeyPressTime = 0
+                DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
+                return
+            }
+            let now = ProcessInfo.processInfo.systemUptime
+            let delta = now - lastKeyPressTime
+            if delta < doubleTapInterval {
+                lastKeyPressTime = 0
+                keyIsDown = false
+                NSLog("DictationApp: double-tap (fallback) → start")
+                DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
+            } else {
+                lastKeyPressTime = now
+            }
+        } else if !keyDown {
+            keyIsDown = false
+        }
     }
 }
