@@ -183,6 +183,9 @@ class DictationViewModel: ObservableObject {
                     NSLog("DictationApp: [TRANSLATE] done: %d chars", translated.count)
                 } else {
                     NSLog("DictationApp: [TRANSLATE] failed — using original text")
+                    await MainActor.run {
+                        self?.errorMessage = "Translation failed; pasted original text."
+                    }
                 }
                 await MainActor.run { self?.isTranslating = false }
             }
