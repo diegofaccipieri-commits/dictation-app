@@ -30,7 +30,8 @@ class FnKeyMonitor {
                       | CGEventMask(1 << CGEventType.keyDown.rawValue)
 
         let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
+            // HID-level tap is more reliable for FN/modifier flags.
+            tap: .cghidEventTap,
             place: .headInsertEventTap,
             // Passive monitor: never intercepts/blocks system keyboard events.
             options: .listenOnly,
