@@ -22,8 +22,12 @@ class FnKeyMonitor {
     private var watchdog: DispatchSourceTimer?
     private var fnGlobalMonitor: Any?
     private var lastKeyPressTime: TimeInterval = 0
+    private var lastToggleFireTime: TimeInterval = 0
+    private var recordingStartedAt: TimeInterval = 0
     private var keyIsDown: Bool = false
     private let doubleTapInterval: TimeInterval = 0.5
+    private let toggleDebounceInterval: TimeInterval = 0.35
+    private let recordingStopGuardInterval: TimeInterval = 0.45
     private let escKeyCode: CGKeyCode = 53
 
     func start() {
@@ -114,9 +118,14 @@ class FnKeyMonitor {
 
             // While recording: single press stops — no double-tap needed.
             if isRecording {
+                let now = ProcessInfo.processInfo.systemUptime
+                // Guard against immediate re-fire right after recording starts.
+                if now - recordingStartedAt < recordingStopGuardInterval {
+                    return Unmanaged.passUnretained(event)
+                }
                 keyIsDown = false
                 lastKeyPressTime = 0
-                DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
+                emitToggleIfAllowed(now: now)
                 return Unmanaged.passUnretained(event)
             }
 
@@ -127,7 +136,8 @@ class FnKeyMonitor {
                 lastKeyPressTime = 0
                 keyIsDown = false
                 NSLog("DictationApp: double-tap → start")
-                DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
+                recordRecordingStart(now: now)
+                emitToggleIfAllowed(now: now)
             } else {
                 lastKeyPressTime = now
             }
@@ -146,9 +156,13 @@ class FnKeyMonitor {
         if keyDown && !keyIsDown {
             keyIsDown = true
             if isRecording {
+                let now = ProcessInfo.processInfo.systemUptime
+                if now - recordingStartedAt < recordingStopGuardInterval {
+                    return
+                }
                 keyIsDown = false
                 lastKeyPressTime = 0
-                DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
+                emitToggleIfAllowed(now: now)
                 return
             }
             let now = ProcessInfo.processInfo.systemUptime
@@ -157,12 +171,25 @@ class FnKeyMonitor {
                 lastKeyPressTime = 0
                 keyIsDown = false
                 NSLog("DictationApp: double-tap (fallback) → start")
-                DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
+                recordRecordingStart(now: now)
+                emitToggleIfAllowed(now: now)
             } else {
                 lastKeyPressTime = now
             }
         } else if !keyDown {
             keyIsDown = false
         }
+    }
+
+    private func emitToggleIfAllowed(now: TimeInterval) {
+        if now - lastToggleFireTime < toggleDebounceInterval {
+            return
+        }
+        lastToggleFireTime = now
+        DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
+    }
+
+    private func recordRecordingStart(now: TimeInterval) {
+        recordingStartedAt = now
     }
 }
