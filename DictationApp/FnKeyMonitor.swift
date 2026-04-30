@@ -32,7 +32,8 @@ class FnKeyMonitor {
         let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            // Passive monitor: never intercepts/blocks system keyboard events.
+            options: .listenOnly,
             eventsOfInterest: eventMask,
             callback: { _, _, event, refcon -> Unmanaged<CGEvent>? in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
