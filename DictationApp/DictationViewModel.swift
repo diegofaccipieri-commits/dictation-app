@@ -184,7 +184,7 @@ class DictationViewModel: ObservableObject {
                 } else {
                     NSLog("DictationApp: [TRANSLATE] failed — using original text")
                     await MainActor.run {
-                        self?.errorMessage = "Translation failed; pasted original text."
+                        self?.errorMessage = "Translation unavailable (timeout/error); pasted original text."
                     }
                 }
                 await MainActor.run { self?.isTranslating = false }

@@ -68,7 +68,21 @@ actor OllamaTranslator {
 
                 do {
                     try process.run()
-                    process.waitUntilExit()
+                    let timeout: TimeInterval = 15
+                    let deadline = Date().addingTimeInterval(timeout)
+                    while process.isRunning && Date() < deadline {
+                        Thread.sleep(forTimeInterval: 0.05)
+                    }
+                    if process.isRunning {
+                        process.terminate()
+                        Thread.sleep(forTimeInterval: 0.1)
+                        if process.isRunning {
+                            kill(process.processIdentifier, SIGKILL)
+                        }
+                        NSLog("DictationApp: [TRANSLATE] timeout via %@", candidate)
+                        continuation.resume(returning: nil)
+                        return
+                    }
                     let data = pipe.fileHandleForReading.readDataToEndOfFile()
                     let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     if process.terminationStatus == 0 && !output.isEmpty {
