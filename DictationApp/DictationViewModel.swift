@@ -159,9 +159,11 @@ class DictationViewModel: ObservableObject {
 
         let manager = transcriptionManager
         transcriptionTask = Task.detached(priority: .userInitiated) { [weak self] in
+            if Task.isCancelled { return }
             let start = ProcessInfo.processInfo.systemUptime
             NSLog("DictationApp: [FINAL] calling transcribeSamplesFinal...")
             let result = await manager.transcribeSamplesFinal(samples)
+            if Task.isCancelled { return }
             let elapsed = ProcessInfo.processInfo.systemUptime - start
             NSLog("DictationApp: [FINAL] transcribed %d chars in %.1fs: '%@'", result.count, elapsed, String(result.prefix(100)))
 
@@ -169,12 +171,14 @@ class DictationViewModel: ObservableObject {
             let mode = await MainActor.run { self?.translationMode ?? .off }
             var finalText = result
             if mode != .off && !result.isEmpty {
+                if Task.isCancelled { return }
                 await MainActor.run {
                     self?.isTranslating = true
                     self?.hud.updateText("Translating...")
                 }
                 NSLog("DictationApp: [TRANSLATE] starting %@ for %d chars", mode.displayName, result.count)
                 if let translated = await self?.translator.translate(result, mode: mode) {
+                    if Task.isCancelled { return }
                     finalText = translated
                     NSLog("DictationApp: [TRANSLATE] done: %d chars", translated.count)
                 } else {
@@ -185,6 +189,7 @@ class DictationViewModel: ObservableObject {
 
             await MainActor.run {
                 guard let self else { return }
+                if Task.isCancelled { return }
                 if finalText.isEmpty {
                     NSLog("DictationApp: [FINAL] no text — nothing to paste")
                     self.errorMessage = "No speech detected"
@@ -204,11 +209,14 @@ class DictationViewModel: ObservableObject {
             }
 
             guard !finalText.isEmpty else { return }
+            if Task.isCancelled { return }
 
             // Show checkmark for 1 second then dismiss
             try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if Task.isCancelled { return }
             await MainActor.run {
                 guard let self else { return }
+                if Task.isCancelled { return }
                 self.state = .idle
                 self.hud.hide()
                 NSLog("DictationApp: [FINAL] state -> idle, done")
