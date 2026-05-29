@@ -207,16 +207,13 @@ class WhisperCppServer {
                     && (bIsSuffix || (a.count <= 9 && joined.count <= 18))
 
                 if couldBeFragment {
-                    let aMisspelled = !bIsSuffix && checker.checkSpelling(of: a, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
-                    let bMisspelled = bIsSuffix || checker.checkSpelling(of: b, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location != NSNotFound
+                    let aMisspelled = !bIsSuffix && !isSpelled(a, lang: lang, checker: checker)
+                    let bMisspelled = bIsSuffix || !isSpelled(b, lang: lang, checker: checker)
 
                     if aMisspelled || bMisspelled {
-                        // Check joined in detected language + Portuguese fallback
-                        let joinedValid = checker.checkSpelling(of: joined, startingAt: 0, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
-                            || (lang != "pt" && checker.checkSpelling(of: joined, startingAt: 0, language: "pt", wrap: false, inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound)
-                        if joinedValid {
-                            NSLog("DictationApp: [WCPP] merged: '%@' + '%@' → '%@' [%@]", a, b, joined, lang)
-                            result.append(joined)
+                        if let merged = resolveMerge(a: a, b: b, joined: joined, bIsSuffix: bIsSuffix, lang: lang, checker: checker) {
+                            NSLog("DictationApp: [WCPP] merged: '%@' + '%@' → '%@' [%@]", a, b, merged, lang)
+                            result.append(merged)
                             i += 2
                             continue
                         }
@@ -227,6 +224,57 @@ class WhisperCppServer {
             i += 1
         }
         return result.joined(separator: " ")
+    }
+
+    /// True if `word` is spelled correctly in `lang`, with Portuguese as a fallback.
+    private static func isSpelled(_ word: String, lang: String, checker: NSSpellChecker) -> Bool {
+        func ok(_ l: String) -> Bool {
+            checker.checkSpelling(of: word, startingAt: 0, language: l, wrap: false,
+                                  inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
+        }
+        if ok(lang) { return true }
+        return lang != "pt" && ok("pt")
+    }
+
+    /// Strip diacritics (e.g. "rápida" → "rapida"), using Brazilian Portuguese rules.
+    private static func deaccent(_ s: String) -> String {
+        s.folding(options: .diacriticInsensitive, locale: Locale(identifier: "pt_BR"))
+    }
+
+    /// Resolve the correct merged spelling of two fragments, or nil if no confident merge.
+    /// Order: (1) naive join, (2) base with accent dropped — pt adverbs drop the base
+    /// accent ("rápida"+"mente" → "rapidamente"), (3) spell-checker suggestion, accepted
+    /// only if it keeps the suffix and shares the base's stem so we never invent a new word.
+    private static func resolveMerge(a: String, b: String, joined: String,
+                                     bIsSuffix: Bool, lang: String, checker: NSSpellChecker) -> String? {
+        // 1. Naive concatenation already valid.
+        if isSpelled(joined, lang: lang, checker: checker) { return joined }
+        guard bIsSuffix else { return nil }  // only known suffixes get the extra repair attempts
+
+        // 2. Drop the base's accent.
+        let deAccented = deaccent(a) + b
+        if deAccented != joined && isSpelled(deAccented, lang: lang, checker: checker) {
+            return deAccented
+        }
+
+        // 3. Spell-checker suggestion, guarded by suffix + stem match.
+        let bLower = b.lowercased()
+        let stem = String(deaccent(a).lowercased().prefix(3))
+        let langsToTry = lang == "pt" ? ["pt_BR", "pt"] : [lang, "pt_BR", "pt"]
+        let ns = joined as NSString
+        for l in langsToTry {
+            let guesses = checker.guesses(forWordRange: NSRange(location: 0, length: ns.length),
+                                          in: joined, language: l, inSpellDocumentWithTag: 0) ?? []
+            for g in guesses {
+                let gLower = g.lowercased()
+                if gLower.hasSuffix(bLower)
+                    && deaccent(gLower).hasPrefix(stem)
+                    && abs(g.count - joined.count) <= 3 {
+                    return g
+                }
+            }
+        }
+        return nil
     }
 
     /// Detect dominant language of text using NLLanguageRecognizer.
