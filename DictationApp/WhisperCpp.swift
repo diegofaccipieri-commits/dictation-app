@@ -165,6 +165,8 @@ class WhisperCppServer {
     private static let knownSuffixes: Set<String> = [
         // Portuguese endings
         "ção", "ções", "são", "sões", "nhão", "nhões", "agem", "mente",
+        "ação", "ações",                        // documentação, informação, etc.
+        "amento", "amentos", "imento", "imentos", // pagamento, requerimento, etc.
         "ário", "ária", "ários", "árias", "dade", "tura",
         "amente", "iamente",                    // obrigatoriamente, rapidamente, etc.
         "eiro", "eira", "eiros", "eiras",
@@ -193,13 +195,16 @@ class WhisperCppServer {
         while i < words.count {
             if i + 1 < words.count {
                 let a = words[i]
-                let b = words[i + 1]
-                let joined = a + b
+                // Detach trailing punctuation from the second fragment ("ian." → "ian" + ".")
+                // so a sentence-final split like "Líl ian." can still merge, then reattach it.
+                let bRaw = words[i + 1]
+                let bCore = String(bRaw.unicodeScalars.prefix { CharacterSet.letters.contains($0) })
+                let bTrail = String(bRaw.dropFirst(bCore.count))
+                let joined = a + bCore
 
                 let aLetters = a.allSatisfy { $0.isLetter }
-                let bLetters = b.allSatisfy { $0.isLetter }
-                let bLower = b.lowercased()
-                let bIsSuffix = knownSuffixes.contains(bLower)
+                let bLetters = !bCore.isEmpty && bCore.allSatisfy { $0.isLetter }
+                let bIsSuffix = knownSuffixes.contains(bCore.lowercased())
 
                 // Known suffix: always attempt merge (bypasses length limit and spell check on b).
                 // Regular fragment: both short, check spelling.
@@ -207,13 +212,16 @@ class WhisperCppServer {
                     && (bIsSuffix || (a.count <= 9 && joined.count <= 18))
 
                 if couldBeFragment {
-                    let aMisspelled = !bIsSuffix && !isSpelled(a, lang: lang, checker: checker)
-                    let bMisspelled = bIsSuffix || !isSpelled(b, lang: lang, checker: checker)
+                    // A fragment counts as a split-signal when misspelled in the DETECTED
+                    // language only (no Portuguese fallback) — otherwise a foreign-looking
+                    // fragment like "document" gets masked as valid and the merge is skipped.
+                    let aMisspelled = !bIsSuffix && !isSpelled(a, lang: lang, checker: checker, allowPortugueseFallback: false)
+                    let bMisspelled = bIsSuffix || !isSpelled(bCore, lang: lang, checker: checker, allowPortugueseFallback: false)
 
                     if aMisspelled || bMisspelled {
-                        if let merged = resolveMerge(a: a, b: b, joined: joined, bIsSuffix: bIsSuffix, lang: lang, checker: checker) {
-                            NSLog("DictationApp: [WCPP] merged: '%@' + '%@' → '%@' [%@]", a, b, merged, lang)
-                            result.append(merged)
+                        if let merged = resolveMerge(a: a, b: bCore, joined: joined, bIsSuffix: bIsSuffix, lang: lang, checker: checker) {
+                            NSLog("DictationApp: [WCPP] merged: '%@' + '%@' → '%@' [%@]", a, bRaw, merged + bTrail, lang)
+                            result.append(merged + bTrail)
                             i += 2
                             continue
                         }
@@ -226,14 +234,17 @@ class WhisperCppServer {
         return result.joined(separator: " ")
     }
 
-    /// True if `word` is spelled correctly in `lang`, with Portuguese as a fallback.
-    private static func isSpelled(_ word: String, lang: String, checker: NSSpellChecker) -> Bool {
+    /// True if `word` is spelled correctly in `lang`. When `allowPortugueseFallback`
+    /// is true, also accept words valid in Portuguese (used to validate a merged word);
+    /// when false, judge strictly in the detected language (used to flag split fragments).
+    private static func isSpelled(_ word: String, lang: String, checker: NSSpellChecker,
+                                  allowPortugueseFallback: Bool = true) -> Bool {
         func ok(_ l: String) -> Bool {
             checker.checkSpelling(of: word, startingAt: 0, language: l, wrap: false,
                                   inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
         }
         if ok(lang) { return true }
-        return lang != "pt" && ok("pt")
+        return allowPortugueseFallback && lang != "pt" && ok("pt")
     }
 
     /// Strip diacritics (e.g. "rápida" → "rapida"), using Brazilian Portuguese rules.
