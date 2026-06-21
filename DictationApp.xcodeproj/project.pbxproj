@@ -8,9 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		0532F7CC9BFAB959362B756A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8AD2F1132A9EEC08366D2A4B /* WhisperKit */; };
+		FA1111111111111111111111 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = FA2222222222222222222222 /* FluidAudio */; };
 		0ACB384166C92BC787992471 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 4D9CF33863B95BC063C6DA7D /* KeyboardShortcuts */; };
 		184CC3F69A72710B50146F3F /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53548C9CE9802915382F99E /* UpdateChecker.swift */; };
 		27EAC0BF7D7E0B7639CF270B /* WhisperCpp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABDE54AB2A7F063EC484D388 /* WhisperCpp.swift */; };
+		CA1111111111111111111111 /* AudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA2222222222222222222222 /* AudioDecoder.swift */; };
+		CB1111111111111111111111 /* VoiceMemosLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2222222222222222222222 /* VoiceMemosLibrary.swift */; };
+		CC1111111111111111111111 /* VoiceMemosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2222222222222222222222 /* VoiceMemosView.swift */; };
+		CD1111111111111111111111 /* DiarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD2222222222222222222222 /* DiarizationService.swift */; };
 		38F27DBAE2090CAF4B76CA8A /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F9740C345122FA73E95E61 /* AudioRecorder.swift */; };
 		4A2CD45EB756D26F22AC98C0 /* DictationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AA2DB2253E05E4CA4F3AD0 /* DictationViewModel.swift */; };
 		5C3A024A857271A7DB5CFCFB /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */; };
@@ -25,7 +30,7 @@
 		D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */; };
 		E0673111C04A99474760C52B /* WhisperModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C9115276316585237DB37AB /* WhisperModel.swift */; };
 		E26CEF7EE43878A9BF34BED9 /* RecordingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */; };
-		AA1111111111111111111111 /* OllamaTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2222222222222222222222 /* OllamaTranslator.swift */; };
+		AA1111111111111111111111 /* ClaudeTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2222222222222222222222 /* ClaudeTranslator.swift */; };
 		AA3333333333333333333333 /* TranslationMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4444444444444444444444 /* TranslationMode.swift */; };
 		BB1111111111111111111111 /* DoubleTapKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2222222222222222222222 /* DoubleTapKey.swift */; };
 		AA5555555555555555555555 /* whisper-server in Resources */ = {isa = PBXBuildFile; fileRef = AA6666666666666666666666 /* whisper-server */; };
@@ -49,10 +54,14 @@
 		9A88AA362405D41E5E904895 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A53548C9CE9802915382F99E /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		ABDE54AB2A7F063EC484D388 /* WhisperCpp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperCpp.swift; sourceTree = "<group>"; };
+		CA2222222222222222222222 /* AudioDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDecoder.swift; sourceTree = "<group>"; };
+		CB2222222222222222222222 /* VoiceMemosLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMemosLibrary.swift; sourceTree = "<group>"; };
+		CC2222222222222222222222 /* VoiceMemosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMemosView.swift; sourceTree = "<group>"; };
+		CD2222222222222222222222 /* DiarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiarizationService.swift; sourceTree = "<group>"; };
 		AC198E3C20403986C286C56F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		AE1290CAE439A7561A41F669 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordMonitor.swift; sourceTree = "<group>"; };
-		AA2222222222222222222222 /* OllamaTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaTranslator.swift; sourceTree = "<group>"; };
+		AA2222222222222222222222 /* ClaudeTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTranslator.swift; sourceTree = "<group>"; };
 		AA4444444444444444444444 /* TranslationMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationMode.swift; sourceTree = "<group>"; };
 		BB2222222222222222222222 /* DoubleTapKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleTapKey.swift; sourceTree = "<group>"; };
 		AA6666666666666666666666 /* whisper-server */ = {isa = PBXFileReference; path = "whisper-server"; sourceTree = "<group>"; };
@@ -65,6 +74,7 @@
 			files = (
 				0532F7CC9BFAB959362B756A /* WhisperKit in Frameworks */,
 				0ACB384166C92BC787992471 /* KeyboardShortcuts in Frameworks */,
+				FA1111111111111111111111 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -99,9 +109,13 @@
 				C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */,
 				136F800BA7DE08E3D2BEE869 /* whisper-cli */,
 				ABDE54AB2A7F063EC484D388 /* WhisperCpp.swift */,
+				CA2222222222222222222222 /* AudioDecoder.swift */,
+				CB2222222222222222222222 /* VoiceMemosLibrary.swift */,
+				CC2222222222222222222222 /* VoiceMemosView.swift */,
+				CD2222222222222222222222 /* DiarizationService.swift */,
 				8C9115276316585237DB37AB /* WhisperModel.swift */,
 				BB2222222222222222222222 /* DoubleTapKey.swift */,
-				AA2222222222222222222222 /* OllamaTranslator.swift */,
+				AA2222222222222222222222 /* ClaudeTranslator.swift */,
 				AA4444444444444444444444 /* TranslationMode.swift */,
 				AA6666666666666666666666 /* whisper-server */,
 			);
@@ -135,6 +149,7 @@
 			packageProductDependencies = (
 				8AD2F1132A9EEC08366D2A4B /* WhisperKit */,
 				4D9CF33863B95BC063C6DA7D /* KeyboardShortcuts */,
+				FA2222222222222222222222 /* FluidAudio */,
 			);
 			productName = DictationApp;
 			productReference = 2BEDE44D29C8252B3214EAD7 /* DictationApp.app */;
@@ -163,6 +178,7 @@
 			packageReferences = (
 				F425B7F9B531AD1CE44B2310 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
 				4E66575D95DFCCFDED5008FD /* XCRemoteSwiftPackageReference "WhisperKit" */,
+				FA3333333333333333333333 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 73754135B34ECBC4A8426BF4 /* Products */;
@@ -206,9 +222,13 @@
 				184CC3F69A72710B50146F3F /* UpdateChecker.swift in Sources */,
 				812119C11B13B90BFE27BF83 /* WakeWordMonitor.swift in Sources */,
 				27EAC0BF7D7E0B7639CF270B /* WhisperCpp.swift in Sources */,
+				CA1111111111111111111111 /* AudioDecoder.swift in Sources */,
+				CB1111111111111111111111 /* VoiceMemosLibrary.swift in Sources */,
+				CC1111111111111111111111 /* VoiceMemosView.swift in Sources */,
+				CD1111111111111111111111 /* DiarizationService.swift in Sources */,
 				E0673111C04A99474760C52B /* WhisperModel.swift in Sources */,
 				BB1111111111111111111111 /* DoubleTapKey.swift in Sources */,
-				AA1111111111111111111111 /* OllamaTranslator.swift in Sources */,
+				AA1111111111111111111111 /* ClaudeTranslator.swift in Sources */,
 				AA3333333333333333333333 /* TranslationMode.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -415,6 +435,14 @@
 				minimumVersion = 2.0.0;
 			};
 		};
+		FA3333333333333333333333 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.12.4;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -427,6 +455,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4E66575D95DFCCFDED5008FD /* XCRemoteSwiftPackageReference "WhisperKit" */;
 			productName = WhisperKit;
+		};
+		FA2222222222222222222222 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FA3333333333333333333333 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

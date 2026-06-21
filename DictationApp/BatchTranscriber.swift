@@ -15,9 +15,21 @@ class BatchTranscriber {
     var onProgress: ((String) -> Void)?   // status message
     var onComplete: ((Int, Int) -> Void)?  // done, total
 
+    // When set, .txt files are written here instead of next to the source file.
+    var outputDirectory: URL?
+    // When set, maps a source file URL to the .txt base name (without extension).
+    var nameProvider: ((URL) -> String)?
+    // When true, run voice-based speaker diarization and label paragraphs by speaker.
+    var diarize = false
+
     private static let audioExtensions: Set<String> = [
         "mp3", "m4a", "wav", "aac", "flac", "ogg", "opus", "aiff", "caf",
-        "mp4", "mov", "m4v"
+        "mp4", "mov", "m4v", "qta"
+    ]
+
+    // Formats WhisperKit reads directly; anything else is transcoded to WAV first.
+    private static let nativeExtensions: Set<String> = [
+        "mp3", "m4a", "wav", "aac", "flac", "aiff", "caf", "mp4", "mov", "m4v"
     ]
 
     // MARK: - Public
@@ -35,6 +47,15 @@ class BatchTranscriber {
         isRunning = true
         task = Task.detached(priority: .background) { [weak self] in
             await self?.process(files: [file], transcriber: transcriber, model: model)
+        }
+    }
+
+    /// Transcribe an explicit list of files (used by the Voice Memos picker).
+    func startFiles(_ files: [URL], transcriber: FinalTranscriber, model: WhisperModel) {
+        guard !isRunning else { return }
+        isRunning = true
+        task = Task.detached(priority: .background) { [weak self] in
+            await self?.process(files: files, transcriber: transcriber, model: model)
         }
     }
 
@@ -59,9 +80,11 @@ class BatchTranscriber {
             let duration = audioDuration(file)
 
             do {
-                let segments = try await transcribeFile(file, duration: duration, fileIndex: done + 1, total: total, transcriber: transcriber, model: model)
-                let txt = format(segments: segments, sourceFile: file)
-                let output = file.deletingPathExtension().appendingPathExtension("txt")
+                let (segments, turns) = try await transcribeFile(file, duration: duration, fileIndex: done + 1, total: total, transcriber: transcriber, model: model)
+                let txt = format(segments: segments, turns: turns, sourceFile: file)
+                let output = outputURL(for: file)
+                try FileManager.default.createDirectory(at: output.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
                 try txt.write(to: output, atomically: true, encoding: .utf8)
                 done += 1
                 await notify("✓ \(done)/\(total): \(name)")
@@ -76,14 +99,54 @@ class BatchTranscriber {
         }
     }
 
-    private func transcribeFile(_ url: URL, duration: Double, fileIndex: Int, total: Int, transcriber: FinalTranscriber, model: WhisperModel) async throws -> [TranscriptionSegment] {
+    private func transcribeFile(_ url: URL, duration: Double, fileIndex: Int, total: Int, transcriber: FinalTranscriber, model: WhisperModel) async throws -> ([TranscriptionSegment], [SpeakerTurn]?) {
         let name = url.lastPathComponent
+        let isNative = Self.nativeExtensions.contains(url.pathExtension.lowercased())
+
+        var workURL = url
+        var tempToCleanup: URL?
+        var turns: [SpeakerTurn]?
+
+        if diarize {
+            // Diarization needs the raw samples; decode once and reuse for transcription.
+            await notify("Convertendo \(fileIndex)/\(total): \(name)…")
+            let samples = try await AudioDecoder.decodeToSamples(url)
+            let wav = FileManager.default.temporaryDirectory
+                .appendingPathComponent("dictation-decode-\(UUID().uuidString).wav")
+            WhisperCppServer.saveWav(samples: samples, to: wav)
+            workURL = wav
+            tempToCleanup = wav
+
+            await notify("Identificando falantes \(fileIndex)/\(total): \(name)… (pode baixar o modelo na 1ª vez)")
+            do {
+                turns = try await DiarizationService.shared.diarize(samples: samples)
+            } catch {
+                NSLog("DictationApp [batch]: diarization failed — %@", error.localizedDescription)
+                await notify("Diarização indisponível em \(name); seguindo sem falantes.")
+                turns = nil
+            }
+        } else if !isNative {
+            // Transcode non-native containers (e.g. Voice Memos' .qta) to a temp WAV first.
+            await notify("Convertendo \(fileIndex)/\(total): \(name)…")
+            workURL = try await AudioDecoder.decodeToWav(url)
+            tempToCleanup = workURL
+        }
+        defer { if let t = tempToCleanup { try? FileManager.default.removeItem(at: t) } }
+
         await notify("Transcrevendo \(fileIndex)/\(total): \(name) [\(model.displayName)] — 0%")
-        return try await transcriber.transcribeWithSegments(url: url, model: model) { [weak self] seekTime in
+        let segments = try await transcriber.transcribeWithSegments(url: workURL, model: model) { [weak self] seekTime in
             guard let self, duration > 0 else { return }
             let pct = min(Int((Double(seekTime) / duration) * 100), 99)
             Task { await self.notify("Transcrevendo \(fileIndex)/\(total): \(name) [\(model.displayName)] — \(pct)%") }
         }
+        return (segments, turns)
+    }
+
+    /// Where to write the .txt for a source file, honoring outputDirectory/nameProvider.
+    private func outputURL(for file: URL) -> URL {
+        let dir = outputDirectory ?? file.deletingLastPathComponent()
+        let base = nameProvider?(file) ?? file.deletingPathExtension().lastPathComponent
+        return dir.appendingPathComponent(base).appendingPathExtension("txt")
     }
 
     private func audioDuration(_ url: URL) -> Double {
@@ -98,73 +161,155 @@ class BatchTranscriber {
     // When the gap between segments exceeds the threshold, speaker flips.
     // Labels: Falante A / Falante B.
 
-    private struct Utterance {
-        let speaker: String
+    private struct Paragraph {
         let start: Double
         let end: Double
         let text: String
+        var speaker: String?   // raw diarization speaker id, nil when diarization is off
     }
 
-    private static let speakerChangeThreshold: Float = 2.0
+    // Start a new paragraph after a pause this long, or once a paragraph gets long,
+    // so the transcript reads as timestamped blocks instead of one wall of text.
+    private static let paragraphGap: Float = 2.0
+    private static let maxParagraphChars = 600
 
-    private func detectSpeakers(segments: [TranscriptionSegment]) -> [Utterance] {
+    // Strip whisper control/timestamp tokens like <|startoftranscript|>, <|pt|>, <|0.00|>.
+    private static let tokenRegex = try? NSRegularExpression(pattern: "<\\|[^|]*\\|>")
+
+    private static func cleanText(_ text: String) -> String {
+        var t = text
+        if let regex = tokenRegex {
+            let range = NSRange(t.startIndex..., in: t)
+            t = regex.stringByReplacingMatches(in: t, range: range, withTemplate: "")
+        }
+        // Collapse the whitespace left behind by removed tokens.
+        t = t.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return t.trimmingCharacters(in: .whitespaces)
+    }
+
+    private func paragraphs(segments: [TranscriptionSegment]) -> [Paragraph] {
         guard !segments.isEmpty else { return [] }
 
-        var utterances: [Utterance] = []
-        var speaker = "Falante A"
-        var uStart = Double(segments[0].start)
-        var uEnd = Double(segments[0].end)
-        var uTexts: [String] = [segments[0].text.trimmingCharacters(in: .whitespaces)]
+        var result: [Paragraph] = []
+        var pStart = Double(segments[0].start)
+        var pEnd = Double(segments[0].end)
+        var pTexts: [String] = [Self.cleanText(segments[0].text)]
+
+        func flush() {
+            let text = pTexts.joined(separator: " ")
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty { result.append(Paragraph(start: pStart, end: pEnd, text: text, speaker: nil)) }
+        }
 
         for i in 1..<segments.count {
             let seg = segments[i]
-            let gap = seg.start - Float(uEnd)
+            let gap = seg.start - Float(pEnd)
+            let running = pTexts.joined(separator: " ").count
 
-            if gap >= Self.speakerChangeThreshold {
-                if !uTexts.isEmpty {
-                    utterances.append(Utterance(speaker: speaker, start: uStart, end: uEnd,
-                                                text: uTexts.joined(separator: " ")))
-                }
-                speaker = speaker == "Falante A" ? "Falante B" : "Falante A"
-                uStart = Double(seg.start)
-                uEnd = Double(seg.end)
-                uTexts = [seg.text.trimmingCharacters(in: .whitespaces)]
+            if gap >= Self.paragraphGap || running >= Self.maxParagraphChars {
+                flush()
+                pStart = Double(seg.start)
+                pEnd = Double(seg.end)
+                pTexts = [Self.cleanText(seg.text)]
             } else {
-                uEnd = Double(seg.end)
-                let t = seg.text.trimmingCharacters(in: .whitespaces)
-                if !t.isEmpty { uTexts.append(t) }
+                pEnd = Double(seg.end)
+                let t = Self.cleanText(seg.text)
+                if !t.isEmpty { pTexts.append(t) }
             }
         }
+        flush()
+        return result
+    }
 
-        if !uTexts.isEmpty {
-            utterances.append(Utterance(speaker: speaker, start: uStart, end: uEnd,
-                                        text: uTexts.joined(separator: " ")))
+    /// The diarization speaker whose turn overlaps [start, end] the most, or nil.
+    private func speaker(start: Double, end: Double, turns: [SpeakerTurn]) -> String? {
+        var best: String?
+        var bestOverlap = 0.0
+        for t in turns {
+            let overlap = min(end, t.end) - max(start, t.start)
+            if overlap > bestOverlap { bestOverlap = overlap; best = t.speakerId }
+        }
+        return best
+    }
+
+    /// Group segments into paragraphs, starting a new one on speaker change, long pause, or length.
+    private func paragraphs(segments: [TranscriptionSegment], turns: [SpeakerTurn]) -> [Paragraph] {
+        guard !segments.isEmpty else { return [] }
+
+        var result: [Paragraph] = []
+        var pStart = Double(segments[0].start)
+        var pEnd = Double(segments[0].end)
+        var pTexts: [String] = [Self.cleanText(segments[0].text)]
+        var pSpeaker = speaker(start: pStart, end: pEnd, turns: turns)
+
+        func flush() {
+            let text = pTexts.joined(separator: " ")
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty { result.append(Paragraph(start: pStart, end: pEnd, text: text, speaker: pSpeaker)) }
         }
 
-        return utterances
+        for i in 1..<segments.count {
+            let seg = segments[i]
+            let segSpeaker = speaker(start: Double(seg.start), end: Double(seg.end), turns: turns)
+            let gap = seg.start - Float(pEnd)
+            let running = pTexts.joined(separator: " ").count
+
+            if segSpeaker != pSpeaker || gap >= Self.paragraphGap || running >= Self.maxParagraphChars {
+                flush()
+                pStart = Double(seg.start)
+                pEnd = Double(seg.end)
+                pTexts = [Self.cleanText(seg.text)]
+                pSpeaker = segSpeaker
+            } else {
+                pEnd = Double(seg.end)
+                let t = Self.cleanText(seg.text)
+                if !t.isEmpty { pTexts.append(t) }
+            }
+        }
+        flush()
+        return result
     }
 
     // MARK: - Output formatting
 
-    private func format(segments: [TranscriptionSegment], sourceFile: URL) -> String {
-        let utterances = detectSpeakers(segments: segments)
+    private func format(segments: [TranscriptionSegment], turns: [SpeakerTurn]?, sourceFile: URL) -> String {
+        let paras: [Paragraph]
+        if let turns, !turns.isEmpty {
+            paras = paragraphs(segments: segments, turns: turns)
+        } else {
+            paras = paragraphs(segments: segments)
+        }
+
+        // Map raw diarization ids to friendly "Falante N" by order of first appearance.
+        var labelFor: [String: String] = [:]
+        for p in paras {
+            if let s = p.speaker, labelFor[s] == nil {
+                labelFor[s] = "Falante \(labelFor.count + 1)"
+            }
+        }
 
         var lines: [String] = []
         let date = DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
 
         lines.append("Transcrição gerada em: \(date)")
         lines.append("Arquivo: \(sourceFile.lastPathComponent)")
-        if let last = utterances.last {
+        if let last = paras.last {
             lines.append("Duração aproximada: \(formatTime(last.end))")
         }
-        lines.append("Modelo: openai_whisper-large-v3")
+        if !labelFor.isEmpty {
+            lines.append("Falantes identificados: \(labelFor.count)")
+        }
         lines.append(String(repeating: "-", count: 60))
         lines.append("")
 
-        for u in utterances {
-            let timeRange = "[\(formatTime(u.start)) - \(formatTime(u.end))]"
-            lines.append("\(timeRange) [\(u.speaker)]:")
-            lines.append(u.text)
+        for p in paras {
+            if let s = p.speaker, let label = labelFor[s] {
+                lines.append("[\(formatTime(p.start))] \(label): \(p.text)")
+            } else {
+                lines.append("[\(formatTime(p.start))] \(p.text)")
+            }
             lines.append("")
         }
 

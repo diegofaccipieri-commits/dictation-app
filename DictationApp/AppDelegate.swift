@@ -10,6 +10,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let viewModel = DictationViewModel()
     private var cancellables = Set<AnyCancellable>()
     let fnMonitor = FnKeyMonitor()
+    private let voiceMemosStore = VoiceMemosStore()
+    private var voiceMemosWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Accessory policy: app name visible in menu bar but never steals keyboard focus.
@@ -126,6 +128,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         batchItem.target = self
         menu.addItem(batchItem)
 
+        let memosItem = NSMenuItem(title: "Transcrever do Voice Memos…", action: #selector(showVoiceMemos), keyEquivalent: "")
+        memosItem.target = self
+        menu.addItem(memosItem)
+
         menu.addItem(.separator())
 
         let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
@@ -208,6 +214,67 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         batch.start(folder: folder, transcriber: viewModel.finalTranscriber, model: viewModel.batchModel)
         viewModel.batchStatus = "Iniciando lote…"
+        statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
+    }
+
+    @objc func showVoiceMemos() {
+        if voiceMemosWindow == nil {
+            let view = VoiceMemosView(store: voiceMemosStore) { [weak self] ids, diarize in
+                self?.transcribeMemos(ids: ids, diarize: diarize)
+            }
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 580, height: 460),
+                styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                backing: .buffered, defer: false)
+            window.title = "Transcrever do Voice Memos"
+            window.contentViewController = NSHostingController(rootView: view)
+            window.center()
+            window.isReleasedWhenClosed = false
+            voiceMemosWindow = window
+        }
+        voiceMemosStore.reload()
+        NSApp.activate(ignoringOtherApps: true)
+        voiceMemosWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func transcribeMemos(ids: Set<String>, diarize: Bool) {
+        let memos = voiceMemosStore.memos.filter { ids.contains($0.id) }
+        guard !memos.isEmpty else { return }
+
+        let batch = BatchTranscriber.shared
+        guard !batch.isRunning else {
+            notify(title: "Transcrição em andamento", message: "Aguarde terminar antes de iniciar outra.")
+            return
+        }
+
+        let byURL = Dictionary(memos.map { ($0.fileURL, $0) }, uniquingKeysWith: { a, _ in a })
+        batch.diarize = diarize
+        batch.outputDirectory = VoiceMemosLibrary.outputFolder
+        batch.nameProvider = { url in
+            if let m = byURL[url] {
+                return VoiceMemosLibrary.outputURL(for: m).deletingPathExtension().lastPathComponent
+            }
+            return url.deletingPathExtension().lastPathComponent
+        }
+        batch.onProgress = { [weak self] msg in
+            self?.voiceMemosStore.status = msg
+            self?.viewModel.batchStatus = msg
+            self?.statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
+        }
+        batch.onComplete = { [weak self] (done: Int, total: Int) in
+            self?.voiceMemosStore.isTranscribing = false
+            self?.voiceMemosStore.status = nil
+            self?.voiceMemosStore.markTranscribed(ids: ids)
+            self?.viewModel.batchStatus = nil
+            self?.statusItem?.button?.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "Dictation")
+            self?.notify(title: "Voice Memos", message: "\(done) de \(total) transcrito(s).")
+            try? FileManager.default.createDirectory(at: VoiceMemosLibrary.outputFolder, withIntermediateDirectories: true)
+            NSWorkspace.shared.open(VoiceMemosLibrary.outputFolder)
+        }
+
+        voiceMemosStore.isTranscribing = true
+        voiceMemosStore.status = "Iniciando \(memos.count) memo(s)…"
+        batch.startFiles(memos.map { $0.fileURL }, transcriber: viewModel.finalTranscriber, model: viewModel.batchModel)
         statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
     }
 

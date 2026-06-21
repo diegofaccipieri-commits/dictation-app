@@ -12,6 +12,9 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     majorVersion: 2.0.0
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    majorVersion: 0.12.4
 
 targets:
   DictationApp:

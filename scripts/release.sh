@@ -10,6 +10,14 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="DictationApp"
 ZIP_NAME="${APP_NAME}_v${VERSION}.zip"
 
+cd "${PROJECT_DIR}"
+
+if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
+    echo "ERROR: working tree has uncommitted changes."
+    echo "Commit the app changes first, then run this release script so the GitHub tag matches the signed binary."
+    exit 1
+fi
+
 echo "==> Building v${VERSION}..."
 
 # Update version in Info.plist
@@ -28,6 +36,7 @@ APP_PATH="${PROJECT_DIR}/build/Build/Products/Release/${APP_NAME}.app"
 
 echo "==> Signing with local certificate..."
 codesign -f -s "34A488E1BA65A57C8D37EC51E342923ACA9D891C" --deep "${APP_PATH}"
+codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 
 echo "==> Zipping (signed app)..."
 cd "${PROJECT_DIR}/build/Build/Products/Release"

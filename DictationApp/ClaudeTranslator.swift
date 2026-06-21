@@ -1,6 +1,8 @@
 import Foundation
 
-actor OllamaTranslator {
+actor ClaudeTranslator {
+    private let timeout: TimeInterval = 60
+
     private let claudeCandidates: [String] = {
         let paths = [
             "/usr/local/bin/claude",
@@ -21,7 +23,14 @@ actor OllamaTranslator {
     func translate(_ text: String, mode: TranslationMode) async -> String? {
         guard mode != .off, !text.isEmpty else { return nil }
 
-        let prompt = mode.prompt + text
+        let prompt = """
+        You are a deterministic translation function for a dictation app.
+        Translate the text exactly as requested.
+        Return ONLY the translated text.
+        Do not add explanations, markdown, labels, quotes, comments, or alternative versions.
+
+        \(mode.prompt)\(text)
+        """
         let start = ProcessInfo.processInfo.systemUptime
         for candidate in claudeCandidates {
             if let translated = await runClaude(prompt: prompt, using: candidate) {
@@ -35,10 +44,13 @@ actor OllamaTranslator {
 
     private func runClaude(prompt: String, using candidate: String) async -> String? {
         let usesEnv = candidate == "/usr/bin/env"
+        let commandTimeout = timeout
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: candidate)
+                process.currentDirectoryURL = FileManager.default.temporaryDirectory
+
                 if usesEnv {
                     process.arguments = ["claude", "-p", prompt, "--max-turns", "1", "--output-format", "text"]
                 } else {
@@ -52,6 +64,7 @@ actor OllamaTranslator {
                     "/usr/local/bin",
                     NSHomeDirectory() + "/.local/bin",
                     NSHomeDirectory() + "/.npm-global/bin",
+                    NSHomeDirectory() + "/.claude/local",
                 ].joined(separator: ":")
                 env["PATH"] = currentPath.isEmpty ? extraPath : "\(currentPath):\(extraPath)"
                 env["NO_COLOR"] = "1"
@@ -68,8 +81,7 @@ actor OllamaTranslator {
 
                 do {
                     try process.run()
-                    let timeout: TimeInterval = 15
-                    let deadline = Date().addingTimeInterval(timeout)
+                    let deadline = Date().addingTimeInterval(commandTimeout)
                     while process.isRunning && Date() < deadline {
                         Thread.sleep(forTimeInterval: 0.05)
                     }
@@ -79,22 +91,24 @@ actor OllamaTranslator {
                         if process.isRunning {
                             kill(process.processIdentifier, SIGKILL)
                         }
-                        NSLog("DictationApp: [TRANSLATE] timeout via %@", candidate)
+                        NSLog("DictationApp: [TRANSLATE] timeout via claude %@", candidate)
                         continuation.resume(returning: nil)
                         return
                     }
+
                     let data = pipe.fileHandleForReading.readDataToEndOfFile()
                     let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     if process.terminationStatus == 0 && !output.isEmpty {
                         continuation.resume(returning: output)
                         return
                     }
+
                     let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                     let errStr = String(data: errData, encoding: .utf8) ?? ""
-                    NSLog("DictationApp: [TRANSLATE] failed via %@ (exit %d): %@", candidate, process.terminationStatus, String(errStr.prefix(200)))
+                    NSLog("DictationApp: [TRANSLATE] failed via claude %@ (exit %d): %@", candidate, process.terminationStatus, String(errStr.prefix(300)))
                     continuation.resume(returning: nil)
                 } catch {
-                    NSLog("DictationApp: [TRANSLATE] error via %@: %@", candidate, error.localizedDescription)
+                    NSLog("DictationApp: [TRANSLATE] error via claude %@: %@", candidate, error.localizedDescription)
                     continuation.resume(returning: nil)
                 }
             }

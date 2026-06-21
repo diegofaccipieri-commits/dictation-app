@@ -21,7 +21,7 @@ class DictationViewModel: ObservableObject {
 
     private let recorder = AudioRecorder()
     private let transcriptionManager = TranscriptionManager()
-    private let translator = OllamaTranslator()
+    private let translator = ClaudeTranslator()
     var finalTranscriber: FinalTranscriber { transcriptionManager.final_ }
     private let hud = DictationHUD()
     private let wakeWordMonitor = WakeWordMonitor()
@@ -201,6 +201,13 @@ class DictationViewModel: ObservableObject {
                     if self.isWakeWordEnabled { self.wakeWordMonitor.start() }
                 } else {
                     NSLog("DictationApp: [FINAL] pasting %d chars", finalText.count)
+                    DictationDiagnostics.record("final_paste", fields: [
+                        "text": finalText,
+                        "text_length": finalText.count,
+                        "translation_mode": mode.rawValue,
+                        "source_text": result,
+                        "source_text_length": result.count
+                    ])
                     self.transcribedText = finalText
                     self.addToHistory(finalText)
                     self.copyToClipboard(finalText)

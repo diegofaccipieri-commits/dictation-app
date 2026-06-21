@@ -8,6 +8,62 @@ enum WhisperCppError: Error {
     case cliNotFound
 }
 
+enum DictationDiagnostics {
+    private static let lock = NSLock()
+    private static let dateFormatter = ISO8601DateFormatter()
+
+    static var isEnabled: Bool {
+        if UserDefaults.standard.object(forKey: "diagnosticLoggingEnabled") == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "diagnosticLoggingEnabled")
+    }
+
+    static var logDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/DictationApp", isDirectory: true)
+    }
+
+    static var fragmentMergeEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "fragmentMergeEnabled")
+    }
+
+    static func record(_ event: String, fields: [String: Any] = [:]) {
+        guard isEnabled else { return }
+
+        var payload = fields
+        let timestamp = dateFormatter.string(from: Date())
+        payload["event"] = event
+        payload["timestamp"] = timestamp
+        payload["app_version"] = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        payload["build"] = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
+
+        do {
+            try FileManager.default.createDirectory(at: logDirectory, withIntermediateDirectories: true)
+            let day = String(timestamp.prefix(10))
+            let file = logDirectory.appendingPathComponent("diagnostics-\(day).jsonl")
+            let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+            guard var line = String(data: data, encoding: .utf8) else { return }
+            line.append("\n")
+
+            lock.lock()
+            defer { lock.unlock() }
+
+            if !FileManager.default.fileExists(atPath: file.path) {
+                FileManager.default.createFile(atPath: file.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: file)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            if let lineData = line.data(using: .utf8) {
+                handle.write(lineData)
+            }
+        } catch {
+            NSLog("DictationApp: [DIAG] failed to write diagnostic log: %@", error.localizedDescription)
+        }
+    }
+}
+
 /// Manages a whisper.cpp server process and transcribes via HTTP.
 /// Model stays loaded in memory — inference is fast (~2-3s for 20s of audio).
 class WhisperCppServer {
@@ -41,8 +97,13 @@ class WhisperCppServer {
             "--port", String(port),
             "-t", String(maxThreads),
             "-fa",              // flash attention — faster inference on Apple Silicon
+            "--no-timestamps",  // dictation only needs text; avoids token-timestamp wrapping
+            "--split-on-word",  // if wrapping is re-enabled, never split inside a word
+            "--max-len", "500", // keep server-side line breaks away from normal dictation words
             "--beam-size", "1", // greedy decoding — ~50% faster, quality same for dictation
             "--best-of", "1",   // no sampling candidates
+            "--no-speech-thold", "0.3",
+            "--language", "pt", // bias live dictation toward Brazilian Portuguese
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -89,8 +150,18 @@ class WhisperCppServer {
 
     /// Transcribe 16kHz mono Float samples via HTTP POST to the server.
     func transcribe(samples: [Float]) async -> String {
+        let diagnosticID = UUID().uuidString
         NSLog("DictationApp: [WCPP] transcribing %d samples (%.1fs) via server",
               samples.count, Double(samples.count) / 16000.0)
+        DictationDiagnostics.record("whisper_request", fields: [
+            "diagnostic_id": diagnosticID,
+            "sample_count": samples.count,
+            "duration_seconds": Double(samples.count) / 16000.0,
+            "language": "pt",
+            "split_on_word": true,
+            "no_timestamps": true,
+            "max_len": 500
+        ])
 
         // Build WAV data in memory (no disk I/O)
         let wavData = WhisperCppServer.wavData(from: samples)
@@ -110,18 +181,20 @@ class WhisperCppServer {
         body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
         body.append(wavData)
         body.append("\r\n".data(using: .utf8)!)
-        // response_format field
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".data(using: .utf8)!)
-        body.append("text\r\n".data(using: .utf8)!)
-        // language field
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
-        body.append("auto\r\n".data(using: .utf8)!)
-        // initial prompt - guides spelling quality, biased toward Portuguese
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
-        body.append("Ditado com ortografia correta, palavras completas, pontuação adequada.\r\n".data(using: .utf8)!)
+        appendFormField(name: "response_format", value: "text", boundary: boundary, to: &body)
+        appendFormField(name: "language", value: "pt", boundary: boundary, to: &body)
+        appendFormField(name: "no_timestamps", value: "true", boundary: boundary, to: &body)
+        appendFormField(name: "split_on_word", value: "true", boundary: boundary, to: &body)
+        appendFormField(name: "max_len", value: "500", boundary: boundary, to: &body)
+        appendFormField(name: "temperature", value: "0", boundary: boundary, to: &body)
+        appendFormField(name: "suppress_nst", value: "true", boundary: boundary, to: &body)
+        // Initial prompt guides spelling quality while still allowing English product names/terms.
+        appendFormField(
+            name: "prompt",
+            value: "Ditado em português do Brasil. Use palavras completas, ortografia correta e pontuação adequada. Preserve nomes próprios, marcas e termos técnicos em inglês quando forem ditos.",
+            boundary: boundary,
+            to: &body
+        )
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         request.httpBody = body
@@ -145,11 +218,32 @@ class WhisperCppServer {
             .replacingOccurrences(of: "  ", with: " ")
             .trimmingCharacters(in: .whitespaces)
 
-        // Fix words split by the tokenizer (e.g. "mens agem" → "mensagem").
-        cleaned = WhisperCppServer.mergeFragmentedWords(cleaned)
+        let normalizedText = cleaned
+        let mergeEnabled = DictationDiagnostics.fragmentMergeEnabled
+        if mergeEnabled {
+            // Optional repair for words split by the tokenizer (e.g. "mens agem" -> "mensagem").
+            // Disabled by default while we validate whether Whisper's direct output is already better.
+            cleaned = WhisperCppServer.mergeFragmentedWords(cleaned)
+        }
 
         NSLog("DictationApp: [WCPP] server returned %d chars: '%@'", cleaned.count, String(cleaned.prefix(100)))
+        DictationDiagnostics.record("whisper_response", fields: [
+            "diagnostic_id": diagnosticID,
+            "raw_text": responseText,
+            "normalized_text": normalizedText,
+            "cleaned_text": cleaned,
+            "fragment_merge_enabled": mergeEnabled,
+            "raw_length": responseText.count,
+            "cleaned_length": cleaned.count,
+            "line_count": lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
+        ])
         return cleaned
+    }
+
+    private func appendFormField(name: String, value: String, boundary: String, to body: inout Data) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(value)\r\n".data(using: .utf8)!)
     }
 
     deinit {
@@ -187,7 +281,7 @@ class WhisperCppServer {
         let words = text.components(separatedBy: " ")
         guard words.count >= 2 else { return text }
 
-        let lang = detectLanguage(text)
+        let lang = normalizedLanguage(for: text)
         NSLog("DictationApp: [WCPP] mergeFragmentedWords: detected language '%@'", lang)
 
         var result: [String] = []
@@ -218,7 +312,7 @@ class WhisperCppServer {
                     let aMisspelled = !bIsSuffix && !isSpelled(a, lang: lang, checker: checker, allowPortugueseFallback: false)
                     let bMisspelled = bIsSuffix || !isSpelled(bCore, lang: lang, checker: checker, allowPortugueseFallback: false)
 
-                    if aMisspelled || bMisspelled {
+                    if aMisspelled || bMisspelled || shouldTryPortugueseJoin(a: a, b: bCore, joined: joined, lang: lang, checker: checker) {
                         if let merged = resolveMerge(a: a, b: bCore, joined: joined, bIsSuffix: bIsSuffix, lang: lang, checker: checker) {
                             NSLog("DictationApp: [WCPP] merged: '%@' + '%@' → '%@' [%@]", a, bRaw, merged + bTrail, lang)
                             result.append(merged + bTrail)
@@ -245,6 +339,37 @@ class WhisperCppServer {
         }
         if ok(lang) { return true }
         return allowPortugueseFallback && lang != "pt" && ok("pt")
+    }
+
+    /// Some bad splits are two valid standalone words in the spell checker, e.g.
+    /// "client e" -> "cliente", "process o" -> "processo".
+    /// Only do this for Portuguese-biased text and only when the joined form is a
+    /// valid Portuguese word, otherwise common phrases such as "com o" are unsafe.
+    private static func shouldTryPortugueseJoin(a: String, b: String, joined: String,
+                                                lang: String, checker: NSSpellChecker) -> Bool {
+        guard lang == "pt" else { return false }
+        guard a.count >= 3, b.count <= 3, joined.count <= 18 else { return false }
+
+        let lowerA = a.lowercased()
+        let lowerB = b.lowercased()
+        let standaloneSecondWords: Set<String> = [
+            "do", "da", "de", "dos", "das",
+            "no", "na", "nos", "nas",
+            "ao", "aos", "às"
+        ]
+        if standaloneSecondWords.contains(lowerB)
+            && isSpelled(a, lang: "pt_BR", checker: checker, allowPortugueseFallback: true) {
+            return false
+        }
+
+        let unsafePairs: Set<String> = [
+            "com o", "com a", "com os", "com as",
+            "por o", "por a", "por os", "por as"
+        ]
+        guard !unsafePairs.contains("\(lowerA) \(lowerB)") else { return false }
+
+        return isSpelled(joined, lang: "pt_BR", checker: checker, allowPortugueseFallback: true)
+            || isSpelled(joined, lang: "pt", checker: checker, allowPortugueseFallback: false)
     }
 
     /// Strip diacritics (e.g. "rápida" → "rapida"), using Brazilian Portuguese rules.
@@ -288,12 +413,19 @@ class WhisperCppServer {
         return nil
     }
 
-    /// Detect dominant language of text using NLLanguageRecognizer.
-    private static func detectLanguage(_ text: String) -> String {
+    /// Detect dominant language, then normalize toward the app's primary dictation
+    /// language. NLLanguageRecognizer often returns ca/it/es for short Portuguese
+    /// fragments, which makes spell-check based joining choose the wrong spelling.
+    private static func normalizedLanguage(for text: String) -> String {
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
-        guard let lang = recognizer.dominantLanguage else { return "en" }
-        return lang.rawValue
+        guard let raw = recognizer.dominantLanguage?.rawValue else { return "pt" }
+        switch raw {
+        case "pt", "en":
+            return raw
+        default:
+            return "pt"
+        }
     }
 
     // MARK: - WAV helper
