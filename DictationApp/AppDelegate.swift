@@ -12,6 +12,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let fnMonitor = FnKeyMonitor()
     private let voiceMemosStore = VoiceMemosStore()
     private var voiceMemosWindow: NSWindow?
+    private var meetingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Accessory policy: app name visible in menu bar but never steals keyboard focus.
@@ -134,6 +135,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let reunioesItem = NSMenuItem(title: "Gravar Reunião…", action: #selector(showReunioes), keyEquivalent: "")
+        reunioesItem.target = self
+        menu.addItem(reunioesItem)
+
+        menu.addItem(.separator())
+
         let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
         menu.addItem(updateItem)
@@ -215,6 +222,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         batch.start(folder: folder, transcriber: viewModel.finalTranscriber, model: viewModel.batchModel)
         viewModel.batchStatus = "Iniciando lote…"
         statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
+    }
+
+    @objc func showReunioes() {
+        guard #available(macOS 15, *) else {
+            notify(title: "Reuniões", message: "O gravador de reuniões requer macOS 15 ou superior.")
+            return
+        }
+        if meetingsWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 540),
+                styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                backing: .buffered, defer: false)
+            window.title = "Reuniões"
+            window.contentViewController = NSHostingController(rootView: ReunioesView())
+            window.center()
+            window.isReleasedWhenClosed = false
+            meetingsWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        meetingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc func showVoiceMemos() {
