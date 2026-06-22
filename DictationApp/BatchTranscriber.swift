@@ -99,22 +99,23 @@ class BatchTranscriber {
         }
     }
 
-    private func transcribeFile(_ url: URL, duration: Double, fileIndex: Int, total: Int, transcriber: FinalTranscriber, model: WhisperModel) async throws -> ([TranscriptionSegment], [SpeakerTurn]?) {
+    private func transcribeFile(_ url: URL, duration: Double, fileIndex: Int, total: Int, transcriber: FinalTranscriber, model: WhisperModel) async throws -> ([WhisperCppCLI.Segment], [SpeakerTurn]?) {
         let name = url.lastPathComponent
-        let isNative = Self.nativeExtensions.contains(url.pathExtension.lowercased())
-
-        var workURL = url
-        var tempToCleanup: URL?
         var turns: [SpeakerTurn]?
+        let wavURL: URL
+        let tempToCleanup: URL?
 
+        // whisper-cli needs a 16 kHz mono WAV, so always transcode first (AVFoundation handles
+        // .m4a / .qta / etc). This also fixes the previous hang: WhisperKit's CoreML load
+        // deadlocks on macOS 26.x, so batch now uses the same whisper.cpp engine as live dictation.
+        await notify("Convertendo \(fileIndex)/\(total): \(name)…")
         if diarize {
             // Diarization needs the raw samples; decode once and reuse for transcription.
-            await notify("Convertendo \(fileIndex)/\(total): \(name)…")
             let samples = try await AudioDecoder.decodeToSamples(url)
             let wav = FileManager.default.temporaryDirectory
                 .appendingPathComponent("dictation-decode-\(UUID().uuidString).wav")
             WhisperCppServer.saveWav(samples: samples, to: wav)
-            workURL = wav
+            wavURL = wav
             tempToCleanup = wav
 
             await notify("Identificando falantes \(fileIndex)/\(total): \(name)… (pode baixar o modelo na 1ª vez)")
@@ -125,19 +126,15 @@ class BatchTranscriber {
                 await notify("Diarização indisponível em \(name); seguindo sem falantes.")
                 turns = nil
             }
-        } else if !isNative {
-            // Transcode non-native containers (e.g. Voice Memos' .qta) to a temp WAV first.
-            await notify("Convertendo \(fileIndex)/\(total): \(name)…")
-            workURL = try await AudioDecoder.decodeToWav(url)
-            tempToCleanup = workURL
+        } else {
+            wavURL = try await AudioDecoder.decodeToWav(url)
+            tempToCleanup = wavURL
         }
         defer { if let t = tempToCleanup { try? FileManager.default.removeItem(at: t) } }
 
-        await notify("Transcrevendo \(fileIndex)/\(total): \(name) [\(model.displayName)] — 0%")
-        let segments = try await transcriber.transcribeWithSegments(url: workURL, model: model) { [weak self] seekTime in
-            guard let self, duration > 0 else { return }
-            let pct = min(Int((Double(seekTime) / duration) * 100), 99)
-            Task { await self.notify("Transcrevendo \(fileIndex)/\(total): \(name) [\(model.displayName)] — \(pct)%") }
+        await notify("Transcrevendo \(fileIndex)/\(total): \(name) — 0%")
+        let segments = try await WhisperCppCLI.transcribeSegments(wav: wavURL) { [weak self] pct in
+            Task { await self?.notify("Transcrevendo \(fileIndex)/\(total): \(name) — \(pct)%") }
         }
         return (segments, turns)
     }
@@ -170,7 +167,7 @@ class BatchTranscriber {
 
     // Start a new paragraph after a pause this long, or once a paragraph gets long,
     // so the transcript reads as timestamped blocks instead of one wall of text.
-    private static let paragraphGap: Float = 2.0
+    private static let paragraphGap: Double = 2.0
     private static let maxParagraphChars = 600
 
     // Strip whisper control/timestamp tokens like <|startoftranscript|>, <|pt|>, <|0.00|>.
@@ -187,12 +184,12 @@ class BatchTranscriber {
         return t.trimmingCharacters(in: .whitespaces)
     }
 
-    private func paragraphs(segments: [TranscriptionSegment]) -> [Paragraph] {
+    private func paragraphs(segments: [WhisperCppCLI.Segment]) -> [Paragraph] {
         guard !segments.isEmpty else { return [] }
 
         var result: [Paragraph] = []
-        var pStart = Double(segments[0].start)
-        var pEnd = Double(segments[0].end)
+        var pStart = segments[0].start
+        var pEnd = segments[0].end
         var pTexts: [String] = [Self.cleanText(segments[0].text)]
 
         func flush() {
@@ -204,7 +201,7 @@ class BatchTranscriber {
 
         for i in 1..<segments.count {
             let seg = segments[i]
-            let gap = seg.start - Float(pEnd)
+            let gap = seg.start - pEnd
             let running = pTexts.joined(separator: " ").count
 
             if gap >= Self.paragraphGap || running >= Self.maxParagraphChars {
@@ -234,12 +231,12 @@ class BatchTranscriber {
     }
 
     /// Group segments into paragraphs, starting a new one on speaker change, long pause, or length.
-    private func paragraphs(segments: [TranscriptionSegment], turns: [SpeakerTurn]) -> [Paragraph] {
+    private func paragraphs(segments: [WhisperCppCLI.Segment], turns: [SpeakerTurn]) -> [Paragraph] {
         guard !segments.isEmpty else { return [] }
 
         var result: [Paragraph] = []
-        var pStart = Double(segments[0].start)
-        var pEnd = Double(segments[0].end)
+        var pStart = segments[0].start
+        var pEnd = segments[0].end
         var pTexts: [String] = [Self.cleanText(segments[0].text)]
         var pSpeaker = speaker(start: pStart, end: pEnd, turns: turns)
 
@@ -252,8 +249,8 @@ class BatchTranscriber {
 
         for i in 1..<segments.count {
             let seg = segments[i]
-            let segSpeaker = speaker(start: Double(seg.start), end: Double(seg.end), turns: turns)
-            let gap = seg.start - Float(pEnd)
+            let segSpeaker = speaker(start: seg.start, end: seg.end, turns: turns)
+            let gap = seg.start - pEnd
             let running = pTexts.joined(separator: " ").count
 
             if segSpeaker != pSpeaker || gap >= Self.paragraphGap || running >= Self.maxParagraphChars {
@@ -274,7 +271,7 @@ class BatchTranscriber {
 
     // MARK: - Output formatting
 
-    private func format(segments: [TranscriptionSegment], turns: [SpeakerTurn]?, sourceFile: URL) -> String {
+    private func format(segments: [WhisperCppCLI.Segment], turns: [SpeakerTurn]?, sourceFile: URL) -> String {
         let paras: [Paragraph]
         if let turns, !turns.isEmpty {
             paras = paragraphs(segments: segments, turns: turns)

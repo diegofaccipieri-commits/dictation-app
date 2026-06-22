@@ -499,3 +499,94 @@ class WhisperCppServer {
         try? data.write(to: url)
     }
 }
+
+/// Batch/file transcription via the bundled `whisper-cli` (the same whisper.cpp engine that powers
+/// live dictation). Used INSTEAD of WhisperKit for file & Voice-Memos transcription because
+/// WhisperKit's CoreML model load deadlocks on macOS 26.x (`MLE5ProgramLibrary.lazyInitQueue`).
+/// It runs as a separate process, handles multi-hour files, and emits timestamped segments via `-oj`.
+enum WhisperCppCLI {
+
+    struct Segment {
+        let start: Double   // seconds
+        let end: Double     // seconds
+        let text: String
+    }
+
+    enum CLIError: LocalizedError {
+        case binaryMissing, modelMissing, failed(Int32), noOutput
+        var errorDescription: String? {
+            switch self {
+            case .binaryMissing: return "whisper-cli não encontrado no app"
+            case .modelMissing:  return "modelo whisper.cpp não encontrado"
+            case .failed(let c): return "whisper-cli falhou (código \(c))"
+            case .noOutput:      return "whisper-cli não gerou saída"
+            }
+        }
+    }
+
+    static var cliPath: String { (Bundle.main.resourcePath ?? "") + "/whisper-cli" }
+    static var modelPath: String {
+        NSHomeDirectory() + "/Documents/huggingface/models/whisper.cpp/ggml-large-v3-turbo-q5_0.bin"
+    }
+
+    /// Transcribe a 16 kHz mono WAV into timestamped segments. `onProgress` receives 0–100.
+    static func transcribeSegments(wav: URL,
+                                   language: String = "auto",
+                                   onProgress: ((Int) -> Void)? = nil) async throws -> [Segment] {
+        guard FileManager.default.isExecutableFile(atPath: cliPath) else { throw CLIError.binaryMissing }
+        guard FileManager.default.fileExists(atPath: modelPath) else { throw CLIError.modelMissing }
+
+        let outBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wcli-\(UUID().uuidString)")
+        let jsonURL = URL(fileURLWithPath: outBase.path + ".json")
+        defer { try? FileManager.default.removeItem(at: jsonURL) }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: cliPath)
+        proc.arguments = [
+            "-m", modelPath,
+            "-f", wav.path,
+            "-oj", "-of", outBase.path,
+            "-l", language,
+            "-t", "4",
+            "-bs", "1", "-bo", "1",   // greedy: fast, fine for transcription
+            "--print-progress",
+        ]
+        proc.standardOutput = FileHandle.nullDevice
+        let errPipe = Pipe()
+        proc.standardError = errPipe
+
+        errPipe.fileHandleForReading.readabilityHandler = { handle in
+            guard let onProgress,
+                  let s = String(data: handle.availableData, encoding: .utf8) else { return }
+            for line in s.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+                if let r = line.range(of: "progress = ") {
+                    let digits = line[r.upperBound...].prefix { $0.isNumber }
+                    if let pct = Int(digits) { onProgress(min(pct, 99)) }
+                }
+            }
+        }
+
+        try proc.run()
+        await Task.detached(priority: .utility) { proc.waitUntilExit() }.value
+        errPipe.fileHandleForReading.readabilityHandler = nil
+
+        guard proc.terminationStatus == 0 else { throw CLIError.failed(proc.terminationStatus) }
+        guard let data = try? Data(contentsOf: jsonURL) else { throw CLIError.noOutput }
+
+        struct Out: Decodable {
+            struct Seg: Decodable {
+                struct Offsets: Decodable { let from: Int; let to: Int }
+                let offsets: Offsets
+                let text: String
+            }
+            let transcription: [Seg]
+        }
+        let out = try JSONDecoder().decode(Out.self, from: data)
+        return out.transcription.map {
+            Segment(start: Double($0.offsets.from) / 1000.0,
+                    end: Double($0.offsets.to) / 1000.0,
+                    text: $0.text)
+        }
+    }
+}
