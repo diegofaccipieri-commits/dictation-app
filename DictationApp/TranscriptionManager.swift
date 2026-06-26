@@ -141,7 +141,8 @@ class TranscriptionManager {
         if let wcpp = whisperCpp {
             NSLog("DictationApp: [TRANSCRIBE] using whisper.cpp server...")
             let start = ProcessInfo.processInfo.systemUptime
-            let text = await wcpp.transcribe(samples: samples)
+            let language = TranscriptionLanguage.current.whisperCode
+            let text = await transcribeSamplesWithWhisperCpp(samples, language: language, server: wcpp)
             let elapsed = ProcessInfo.processInfo.systemUptime - start
             NSLog("DictationApp: [TRANSCRIBE] whisper.cpp done: %d chars in %.1fs", text.count, elapsed)
             return text
@@ -155,6 +156,52 @@ class TranscriptionManager {
         }
         let results = await kit.transcribe(audioArrays: [samples], decodeOptions: Self.defaultDecodingOptions)
         return TextCleaner.clean(results.compactMap { $0 }.flatMap { $0 })
+    }
+
+    private func transcribeSamplesWithWhisperCpp(_ samples: [Float], language: String, server: WhisperCppServer) async -> String {
+        let sampleRate = 16_000
+        if samples.count <= sampleRate * 60 {
+            return await server.transcribe(samples: samples, language: language)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return await transcribeChunksWithWhisperCpp(samples, language: language, server: server,
+                                                   chunkSeconds: 30, overlapSeconds: 1, minTailSeconds: 8)
+    }
+
+    private func transcribeChunksWithWhisperCpp(_ samples: [Float], language: String, server: WhisperCppServer,
+                                                chunkSeconds: Int, overlapSeconds: Int, minTailSeconds: Int) async -> String {
+        let sampleRate = 16_000
+        let chunkSamples = sampleRate * chunkSeconds
+        let overlapSamples = sampleRate * overlapSeconds
+        let minTailSamples = sampleRate * minTailSeconds
+        var parts: [String] = []
+        var start = 0
+        var index = 1
+        let stepSamples = chunkSamples - overlapSamples
+        let total = Int(ceil(Double(max(0, samples.count - overlapSamples)) / Double(stepSamples)))
+        while start < samples.count {
+            if Task.isCancelled { break }
+            var end = min(samples.count, start + chunkSamples)
+            if samples.count - end < minTailSamples {
+                end = samples.count
+            }
+            let chunk = Array(samples[start..<end])
+            NSLog("DictationApp: [TRANSCRIBE] whisper.cpp chunk %d/%d: %.1fs",
+                  index, total, Double(chunk.count) / Double(sampleRate))
+            let text = await server.transcribe(samples: chunk, language: language)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if Task.isCancelled { break }
+            if !text.isEmpty {
+                parts.append(text)
+            }
+            if end == samples.count { break }
+            start += stepSamples
+            index += 1
+        }
+        return parts.joined(separator: " ")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // Runs transcription OUTSIDE the FinalTranscriber actor so a hung

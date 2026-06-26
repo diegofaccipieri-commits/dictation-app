@@ -65,8 +65,12 @@ struct MeetingWaveformView: View {
 @MainActor
 final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var playingURL: URL?
+    @Published var playingPairId: String?
     @Published var progress: Double = 0
     private var player: AVAudioPlayer?
+    private var combinedPlayer: AVPlayer?
+    private var pairURLs: Set<URL> = []
+    private var pairDuration: TimeInterval = 0
     private var timer: Timer?
 
     func toggle(_ url: URL) {
@@ -82,18 +86,81 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         } catch { playingURL = nil }
     }
 
+    func togglePair(id: String, urls: [URL]) {
+        let validURLs = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !validURLs.isEmpty else { return }
+        if playingPairId == id { stop(); return }
+        stop()
+
+        do {
+            let composition = AVMutableComposition()
+            var duration = CMTime.zero
+            for url in validURLs {
+                let asset = AVURLAsset(url: url)
+                guard let source = asset.tracks(withMediaType: .audio).first,
+                      let track = composition.addMutableTrack(withMediaType: .audio,
+                                                              preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                    continue
+                }
+                let range = CMTimeRange(start: .zero, duration: asset.duration)
+                try track.insertTimeRange(range, of: source, at: .zero)
+                duration = max(duration, asset.duration)
+            }
+            guard composition.tracks(withMediaType: .audio).isEmpty == false else { return }
+
+            let item = AVPlayerItem(asset: composition)
+            let player = AVPlayer(playerItem: item)
+            combinedPlayer = player
+            pairURLs = Set(validURLs)
+            pairDuration = duration.seconds.isFinite ? duration.seconds : 0
+            playingPairId = id
+            player.play()
+            startTimer()
+        } catch {
+            stop()
+        }
+    }
+
+    func isPlaying(_ url: URL) -> Bool {
+        playingURL == url || pairURLs.contains(url)
+    }
+
+    func isPlayingPair(id: String) -> Bool {
+        playingPairId == id
+    }
+
+    func progress(for url: URL) -> Double {
+        if playingURL == url { return progress }
+        if pairURLs.contains(url) { return progress }
+        return 0
+    }
+
     func stop() {
         timer?.invalidate(); timer = nil
         player?.stop(); player = nil
-        playingURL = nil; progress = 0
+        combinedPlayer?.pause()
+        combinedPlayer = nil
+        pairURLs = []
+        pairDuration = 0
+        playingURL = nil
+        playingPairId = nil
+        progress = 0
     }
 
     private func startTimer() {
         timer?.invalidate()
         let t = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, let p = self.player, p.duration > 0 else { return }
-                self.progress = p.currentTime / p.duration
+                guard let self else { return }
+                if let p = self.player, p.duration > 0 {
+                    self.progress = p.currentTime / p.duration
+                } else if let p = self.combinedPlayer, self.pairDuration > 0 {
+                    let current = p.currentTime().seconds
+                    self.progress = current / self.pairDuration
+                    if p.timeControlStatus != .playing && current >= self.pairDuration {
+                        self.stop()
+                    }
+                }
             }
         }
         RunLoop.main.add(t, forMode: .common)

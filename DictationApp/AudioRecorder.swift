@@ -22,8 +22,10 @@ class AudioRecorder: NSObject, ObservableObject {
     private var tapCallbackCount = 0
 
     func startRecording() throws {
+        sampleLock.lock()
         sampleBuffer = []
         sampleRate = 16000  // buffer is always resampled to 16kHz (WhisperKit requirement)
+        sampleLock.unlock()
         tapCallbackCount = 0
 
         NSLog("DictationApp: [RECORDER] startRecording called")
@@ -57,9 +59,11 @@ class AudioRecorder: NSObject, ObservableObject {
                 let resampled = AudioRecorder.resampleTo16k(samples: native, fromRate: nativeSampleRate)
                 self.sampleLock.lock()
                 self.sampleBuffer.append(contentsOf: resampled)
-                let allSamples = self.sampleBuffer
+                let callbackSamples = self.onSamplesAvailable == nil ? nil : self.sampleBuffer
                 self.sampleLock.unlock()
-                self.onSamplesAvailable?(allSamples, 16000)
+                if let callbackSamples {
+                    self.onSamplesAvailable?(callbackSamples, 16000)
+                }
             }
         }
 
@@ -109,7 +113,9 @@ class AudioRecorder: NSObject, ObservableObject {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
+        sampleLock.lock()
         sampleBuffer = []
+        sampleLock.unlock()
         NSLog("DictationApp: [RECORDER] stopped")
     }
 }

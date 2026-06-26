@@ -91,6 +91,23 @@ final class MeetingTranscriber: ObservableObject {
     func status(for id: String) -> Status { statusById[id] ?? .idle }
     func segments(for id: String) -> [MeetingSegment] { segmentsById[id] ?? [] }
 
+    func contains(id: String, query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return true }
+        return segments(for: id).contains { MeetingSearch.matches($0, query: q) }
+    }
+
+    func matchCount(id: String, query: String) -> Int {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return 0 }
+        return segments(for: id).filter { MeetingSearch.matches($0, query: q) }.count
+    }
+
+    func clear(id: String) {
+        segmentsById.removeValue(forKey: id)
+        statusById.removeValue(forKey: id)
+    }
+
     func transcribe(_ item: MeetingItem, language: String) {
         statusById[item.id] = .running("Preparando Whisper...")
         segmentsById[item.id] = []
@@ -127,5 +144,12 @@ final class MeetingTranscriber: ObservableObject {
         all += segs.map {
             MeetingSegment(speaker: speaker, text: MeetingGrouping.cleanText($0.text), start: $0.start, end: $0.end)
         }
+    }
+}
+
+enum MeetingSearch {
+    static func matches(_ segment: MeetingSegment, query: String) -> Bool {
+        segment.text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            || segment.speaker.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 }

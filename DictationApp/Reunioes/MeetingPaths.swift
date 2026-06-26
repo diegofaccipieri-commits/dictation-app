@@ -1,19 +1,44 @@
 import Foundation
 
-/// On-disk locations for the Reunioes (meeting recorder) module, under
-/// ~/Library/Application Support/DictationApp/Meetings.
+/// On-disk locations for the Reunioes (meeting recorder) module. Prefer Dropbox so recordings can
+/// be made online-only by Dropbox after capture; fall back to Application Support if Dropbox is absent.
 enum MeetingPaths {
+    private static let fm = FileManager.default
+
+    static let legacyRoot: URL = {
+        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("DictationApp/Meetings", isDirectory: true)
+    }()
+
     static let root: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("DictationApp/Meetings", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dropbox = fm.homeDirectoryForCurrentUser.appendingPathComponent("Dropbox", isDirectory: true)
+        let dir = fm.fileExists(atPath: dropbox.path)
+            ? dropbox.appendingPathComponent("DictationApp/Meetings", isDirectory: true)
+            : legacyRoot
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
 
     static var audioDir: URL {
         let d = root.appendingPathComponent("Audio", isDirectory: true)
-        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: d, withIntermediateDirectories: true)
+        migrateLegacyAudioIfNeeded(to: d)
         return d
+    }
+
+    static var isUsingDropbox: Bool {
+        root.path.hasPrefix(fm.homeDirectoryForCurrentUser.appendingPathComponent("Dropbox").path)
+    }
+
+    private static func migrateLegacyAudioIfNeeded(to destination: URL) {
+        guard destination.standardizedFileURL != legacyRoot.appendingPathComponent("Audio", isDirectory: true).standardizedFileURL else { return }
+        let legacyAudio = legacyRoot.appendingPathComponent("Audio", isDirectory: true)
+        guard let files = try? fm.contentsOfDirectory(at: legacyAudio, includingPropertiesForKeys: nil), !files.isEmpty else { return }
+        for source in files {
+            let target = destination.appendingPathComponent(source.lastPathComponent)
+            guard !fm.fileExists(atPath: target.path) else { continue }
+            try? fm.moveItem(at: source, to: target)
+        }
     }
 
     static func stamp(from date: Date) -> String {

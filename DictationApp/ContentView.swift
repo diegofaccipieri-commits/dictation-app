@@ -82,6 +82,24 @@ struct ContentView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
 
+            // Transcription language
+            HStack {
+                Text("Idioma:")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(width: 90, alignment: .leading)
+                Picker("", selection: Binding(
+                    get: { viewModel.transcriptionLanguage },
+                    set: { viewModel.setTranscriptionLanguage($0) }
+                )) {
+                    ForEach(TranscriptionLanguage.allCases) { lang in
+                        Text(lang.label).tag(lang)
+                    }
+                }
+                .pickerStyle(.menu)
+                .controlSize(.small)
+            }
+
             // Translation mode
             HStack {
                 Text("Tradução:")
@@ -187,7 +205,7 @@ struct ContentView: View {
             .foregroundColor(.secondary)
         }
         .padding()
-        .frame(width: 360, height: viewModel.history.isEmpty ? 360 : 360 + CGFloat(viewModel.history.count) * 46)
+        .frame(width: 360, height: viewModel.history.isEmpty ? 390 : 390 + CGFloat(viewModel.history.count) * 46)
     }
 
     private var statusText: String {

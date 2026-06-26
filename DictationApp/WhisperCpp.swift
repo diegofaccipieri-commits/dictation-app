@@ -97,13 +97,12 @@ class WhisperCppServer {
             "--port", String(port),
             "-t", String(maxThreads),
             "-fa",              // flash attention — faster inference on Apple Silicon
-            "--no-timestamps",  // dictation only needs text; avoids token-timestamp wrapping
             "--split-on-word",  // if wrapping is re-enabled, never split inside a word
             "--max-len", "500", // keep server-side line breaks away from normal dictation words
             "--beam-size", "1", // greedy decoding — ~50% faster, quality same for dictation
             "--best-of", "1",   // no sampling candidates
             "--no-speech-thold", "0.3",
-            "--language", "pt", // bias live dictation toward Brazilian Portuguese
+            "--language", "auto", // per-request language selects auto/pt/en/es
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -149,17 +148,20 @@ class WhisperCppServer {
     }
 
     /// Transcribe 16kHz mono Float samples via HTTP POST to the server.
-    func transcribe(samples: [Float]) async -> String {
+    func transcribe(samples: [Float],
+                    language: String = TranscriptionLanguage.current.whisperCode,
+                    prompt: String? = nil) async -> String {
         let diagnosticID = UUID().uuidString
+        let duration = Double(samples.count) / 16000.0
         NSLog("DictationApp: [WCPP] transcribing %d samples (%.1fs) via server",
-              samples.count, Double(samples.count) / 16000.0)
+              samples.count, duration)
         DictationDiagnostics.record("whisper_request", fields: [
             "diagnostic_id": diagnosticID,
             "sample_count": samples.count,
-            "duration_seconds": Double(samples.count) / 16000.0,
-            "language": "pt",
+            "duration_seconds": duration,
+            "language": language,
             "split_on_word": true,
-            "no_timestamps": true,
+            "no_timestamps": false,
             "max_len": 500
         ])
 
@@ -172,7 +174,7 @@ class WhisperCppServer {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 60
+        request.timeoutInterval = max(120, min(1_800, duration * 12 + 60))
 
         var body = Data()
         // File field
@@ -182,19 +184,15 @@ class WhisperCppServer {
         body.append(wavData)
         body.append("\r\n".data(using: .utf8)!)
         appendFormField(name: "response_format", value: "text", boundary: boundary, to: &body)
-        appendFormField(name: "language", value: "pt", boundary: boundary, to: &body)
-        appendFormField(name: "no_timestamps", value: "true", boundary: boundary, to: &body)
+        appendFormField(name: "language", value: language, boundary: boundary, to: &body)
         appendFormField(name: "split_on_word", value: "true", boundary: boundary, to: &body)
         appendFormField(name: "max_len", value: "500", boundary: boundary, to: &body)
         appendFormField(name: "temperature", value: "0", boundary: boundary, to: &body)
         appendFormField(name: "suppress_nst", value: "true", boundary: boundary, to: &body)
-        // Initial prompt guides spelling quality while still allowing English product names/terms.
-        appendFormField(
-            name: "prompt",
-            value: "Ditado em português do Brasil. Use palavras completas, ortografia correta e pontuação adequada. Preserve nomes próprios, marcas e termos técnicos em inglês quando forem ditos.",
-            boundary: boundary,
-            to: &body
-        )
+        let promptText = prompt ?? Self.defaultPrompt(for: language)
+        if !promptText.isEmpty {
+            appendFormField(name: "prompt", value: promptText, boundary: boundary, to: &body)
+        }
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         request.httpBody = body
@@ -207,6 +205,11 @@ class WhisperCppServer {
             }
         } catch {
             NSLog("DictationApp: [WCPP] HTTP error: %@", error.localizedDescription)
+            DictationDiagnostics.record("whisper_error", fields: [
+                "diagnostic_id": diagnosticID,
+                "duration_seconds": duration,
+                "error": error.localizedDescription
+            ])
         }
 
         // Join newline-separated segments with spaces, then merge tokenizer splits via spell checker.
@@ -244,6 +247,19 @@ class WhisperCppServer {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(value)\r\n".data(using: .utf8)!)
+    }
+
+    static func defaultPrompt(for language: String) -> String {
+        switch language {
+        case "pt":
+            return "Ditado em português do Brasil. Use palavras completas, ortografia correta e pontuação adequada. Preserve nomes próprios, marcas e termos técnicos em inglês quando forem ditos."
+        case "en":
+            return "Dictation in English. Use complete words, correct spelling and proper punctuation."
+        case "es":
+            return "Dictado en español. Usa palabras completas, ortografía correcta y puntuación adecuada."
+        default:
+            return ""
+        }
     }
 
     deinit {

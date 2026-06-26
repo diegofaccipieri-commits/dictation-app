@@ -79,6 +79,24 @@ final class MeetingRecorder: ObservableObject {
 
     func loadMeetings() { meetings = MeetingsStore.load() }
 
+    func rename(_ item: MeetingItem, title: String) {
+        do {
+            try MeetingsStore.rename(item, title: title)
+            loadMeetings()
+        } catch {
+            lastError = "Nao foi possivel renomear a reuniao: \(error.localizedDescription)"
+        }
+    }
+
+    func delete(_ item: MeetingItem) {
+        do {
+            try MeetingsStore.delete(item)
+            loadMeetings()
+        } catch {
+            lastError = "Nao foi possivel apagar a reuniao: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: Timer
     private func startTimer() {
         timer?.invalidate()

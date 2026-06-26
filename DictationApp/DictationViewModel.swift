@@ -16,6 +16,7 @@ class DictationViewModel: ObservableObject {
     @Published var batchStatus: String? = nil
     @Published var liveModel: WhisperModel = WhisperModel(rawValue: UserDefaults.standard.string(forKey: "liveModel") ?? "") ?? .defaultLive
     @Published var batchModel: WhisperModel = WhisperModel(rawValue: UserDefaults.standard.string(forKey: "batchModel") ?? "") ?? .defaultBatch
+    @Published var transcriptionLanguage: TranscriptionLanguage = TranscriptionLanguage.current
     @Published var translationMode: TranslationMode = TranslationMode(rawValue: UserDefaults.standard.string(forKey: "translationMode") ?? "") ?? .off
     @Published var isTranslating: Bool = false
 
@@ -26,6 +27,7 @@ class DictationViewModel: ObservableObject {
     private let hud = DictationHUD()
     private let wakeWordMonitor = WakeWordMonitor()
     private var transcriptionTask: Task<Void, Never>?
+    private var currentRecordingID: String?
 
     init() {
         wakeWordMonitor.onWakeWord = { [weak self] in
@@ -65,6 +67,12 @@ class DictationViewModel: ObservableObject {
         batchModel = model
         UserDefaults.standard.set(model.rawValue, forKey: "batchModel")
         Task { await transcriptionManager.updateModels(liveModel: liveModel, batchModel: model) }
+    }
+
+    func setTranscriptionLanguage(_ language: TranscriptionLanguage) {
+        transcriptionLanguage = language
+        UserDefaults.standard.set(language.rawValue, forKey: "transcriptionLanguage")
+        NSLog("DictationApp: [VM] transcriptionLanguage -> %@", language.whisperCode)
     }
 
     func setTranslationMode(_ mode: TranslationMode) {
@@ -120,11 +128,15 @@ class DictationViewModel: ObservableObject {
         errorMessage = nil
         wakeWordMonitor.stop()
         do {
+            let recordingID = UUID().uuidString
+            currentRecordingID = recordingID
             try recorder.startRecording()
             state = .recording
             let cursor = NSEvent.mouseLocation
             hud.show(state: .recording, near: cursor)
+            DictationDiagnostics.record("recording_started", fields: ["recording_id": recordingID])
         } catch {
+            currentRecordingID = nil
             NSLog("DictationApp: [VM] ERROR starting recording: %@", error.localizedDescription)
             errorMessage = "Microphone error: \(error.localizedDescription)"
             if isWakeWordEnabled { wakeWordMonitor.start() }
@@ -137,15 +149,24 @@ class DictationViewModel: ObservableObject {
         hud.update(state: .transcribing)
 
         let (allSamples, _) = recorder.currentSamples
-        NSLog("DictationApp: [VM] captured %d samples (%.1fs)", allSamples.count, Double(allSamples.count) / 16000.0)
+        let duration = Double(allSamples.count) / 16000.0
+        NSLog("DictationApp: [VM] captured %d samples (%.1fs)", allSamples.count, duration)
+        let recordingID = currentRecordingID ?? UUID().uuidString
+        currentRecordingID = nil
+        var fields = audioActivityFields(samples: allSamples)
+        fields["recording_id"] = recordingID
+        fields["sample_count"] = allSamples.count
+        fields["duration_seconds"] = duration
+        DictationDiagnostics.record("recording_stopped", fields: fields)
+        saveRecentDictationAudio(samples: allSamples, recordingID: recordingID, fields: fields)
 
-        finalizeTranscription(samples: allSamples)
+        finalizeTranscription(samples: allSamples, recordingID: recordingID)
         recorder.stopRecording()
     }
 
     // MARK: - Final transcription (whisper.cpp server)
 
-    private func finalizeTranscription(samples: [Float]) {
+    private func finalizeTranscription(samples: [Float], recordingID: String) {
         NSLog("DictationApp: [FINAL] finalizeTranscription called, %d samples (%.1fs)", samples.count, Double(samples.count) / 16000.0)
 
         guard samples.count >= 4800 else {
@@ -202,6 +223,7 @@ class DictationViewModel: ObservableObject {
                 } else {
                     NSLog("DictationApp: [FINAL] pasting %d chars", finalText.count)
                     DictationDiagnostics.record("final_paste", fields: [
+                        "recording_id": recordingID,
                         "text": finalText,
                         "text_length": finalText.count,
                         "translation_mode": mode.rawValue,
@@ -264,6 +286,109 @@ class DictationViewModel: ObservableObject {
             let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: keyV, keyDown: false)
             cmdUp?.flags = .maskCommand
             cmdUp?.post(tap: .cgAnnotatedSessionEventTap)
+        }
+    }
+
+    private func audioActivityFields(samples: [Float]) -> [String: Any] {
+        let sampleRate = 16_000
+        guard !samples.isEmpty else {
+            return ["rms": 0.0, "peak": 0.0, "active_seconds": 0, "active_ratio": 0.0]
+        }
+
+        var sumSquares: Double = 0
+        var peak: Float = 0
+        var activeSeconds = 0
+        let seconds = Int(ceil(Double(samples.count) / Double(sampleRate)))
+
+        for second in 0..<seconds {
+            let start = second * sampleRate
+            let end = min(samples.count, start + sampleRate)
+            guard start < end else { continue }
+
+            var bucketSquares: Double = 0
+            var bucketPeak: Float = 0
+            for sample in samples[start..<end] {
+                let absSample = abs(sample)
+                if absSample > peak { peak = absSample }
+                if absSample > bucketPeak { bucketPeak = absSample }
+                let value = Double(sample)
+                bucketSquares += value * value
+            }
+            sumSquares += bucketSquares
+
+            let bucketRMS = sqrt(bucketSquares / Double(end - start))
+            if bucketRMS > 0.01 || bucketPeak > 0.06 {
+                activeSeconds += 1
+            }
+        }
+
+        let rms = sqrt(sumSquares / Double(samples.count))
+        return [
+            "rms": rms,
+            "peak": peak,
+            "active_seconds": activeSeconds,
+            "active_ratio": Double(activeSeconds) / max(1.0, Double(seconds))
+        ]
+    }
+
+    private func saveRecentDictationAudio(samples: [Float], recordingID: String, fields: [String: Any]) {
+        let samplesToSave = samples
+        Task.detached(priority: .utility) {
+            let fm = FileManager.default
+            let dir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("DictationApp/RecentDictations", isDirectory: true)
+            do {
+                try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                let stamp = Self.fileStamp()
+                let shortID = String(recordingID.prefix(8))
+                let base = "dictation_\(stamp)_\(shortID)"
+                let wavURL = dir.appendingPathComponent("\(base).wav")
+                let jsonURL = dir.appendingPathComponent("\(base).json")
+
+                WhisperCppServer.saveWav(samples: samplesToSave, to: wavURL)
+
+                var metadata = fields
+                metadata["recording_id"] = recordingID
+                metadata["created_at"] = ISO8601DateFormatter().string(from: Date())
+                metadata["audio_file"] = wavURL.lastPathComponent
+                metadata["app_version"] = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+                metadata["build"] = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
+                let data = try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
+                try data.write(to: jsonURL, options: .atomic)
+
+                Self.pruneRecentDictationAudio(in: dir, keeping: 5)
+                DictationDiagnostics.record("dictation_audio_saved", fields: [
+                    "recording_id": recordingID,
+                    "path": wavURL.path
+                ])
+            } catch {
+                NSLog("DictationApp: [DIAG] failed to save recent dictation audio: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    private nonisolated static func fileStamp() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        return formatter.string(from: Date())
+    }
+
+    private nonisolated static func pruneRecentDictationAudio(in dir: URL, keeping limit: Int) {
+        let fm = FileManager.default
+        guard let wavs = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])
+            .filter({ $0.pathExtension == "wav" }) else { return }
+
+        let sorted = wavs.sorted {
+            let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return lhs > rhs
+        }
+
+        for url in sorted.dropFirst(limit) {
+            try? fm.removeItem(at: url)
+            let jsonURL = url.deletingPathExtension().appendingPathExtension("json")
+            try? fm.removeItem(at: jsonURL)
         }
     }
 }

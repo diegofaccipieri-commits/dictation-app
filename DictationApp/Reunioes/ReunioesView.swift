@@ -6,6 +6,7 @@ struct ReunioesView: View {
     @StateObject private var recorder = MeetingRecorder()
     @StateObject private var player = MeetingPlayer()
     @StateObject private var transcriber = MeetingTranscriber()
+    @State private var searchText = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -84,13 +85,50 @@ struct ReunioesView: View {
         }
     }
 
+    private var searchQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var visibleMeetings: [MeetingItem] {
+        searchQuery.isEmpty
+            ? recorder.meetings
+            : recorder.meetings.filter { meetingMatches($0, query: searchQuery) }
+    }
+
+    private func meetingMatches(_ item: MeetingItem, query: String) -> Bool {
+        item.displayTitle.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            || item.id.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            || transcriber.contains(id: item.id, query: query)
+    }
+
     private var meetingsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Gravações").font(.headline)
-                Spacer()
-                Button { recorder.loadMeetings() } label: { Image(systemName: "arrow.clockwise") }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Gravações").font(.headline)
+                    Spacer()
+                    Button { NSWorkspace.shared.open(MeetingPaths.audioDir) } label: {
+                        Image(systemName: MeetingPaths.isUsingDropbox ? "cloud" : "externaldrive")
+                    }
                     .buttonStyle(.borderless)
+                    .help("Abrir pasta das reuniões")
+                    Button { recorder.loadMeetings() } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless)
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Pesquisar nas transcrições", text: $searchText)
+                        .textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
             }
             .padding(.horizontal).padding(.top, 8)
 
@@ -98,11 +136,21 @@ struct ReunioesView: View {
                 Text("Nenhuma reunião ainda. Conceda as permissões e clique em Gravar reunião.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else if visibleMeetings.isEmpty {
+                Text("Nenhuma transcrição encontrada.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        ForEach(recorder.meetings) { item in
-                            MeetingCard(item: item, player: player, transcriber: transcriber)
+                        ForEach(visibleMeetings) { item in
+                            MeetingCard(item: item, player: player, transcriber: transcriber, searchText: searchQuery) {
+                                recorder.rename(item, title: $0)
+                            } onDelete: {
+                                player.stop()
+                                transcriber.clear(id: item.id)
+                                recorder.delete(item)
+                            }
                         }
                     }
                     .padding()
@@ -127,39 +175,113 @@ struct MeetingCard: View {
     let item: MeetingItem
     @ObservedObject var player: MeetingPlayer
     @ObservedObject var transcriber: MeetingTranscriber
-    @State private var language = "auto"
+    let searchText: String
+    let onRename: (String) -> Void
+    let onDelete: () -> Void
+    @State private var language = TranscriptionLanguage.current.whisperCode
+    @State private var isExpanded = true
+    @State private var renameText = ""
+    @State private var showingRenameAlert = false
+    @State private var showingDeleteAlert = false
+
+    private var isSearching: Bool { !searchText.isEmpty }
+    private var effectiveExpanded: Bool { isExpanded || isSearching }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
+                } label: {
+                    Image(systemName: effectiveExpanded ? "chevron.down" : "chevron.right")
+                        .frame(width: 18)
+                }
+                .buttonStyle(.plain)
+                .help(effectiveExpanded ? "Colapsar" : "Expandir")
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.displayTitle).font(.headline)
                     Text(item.id).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if let mic = item.micURL, let system = item.systemURL {
+                    Button {
+                        player.togglePair(id: item.id, urls: [mic, system])
+                    } label: {
+                        Label(player.isPlayingPair(id: item.id) ? "Pausar tudo" : "Ouvir tudo",
+                              systemImage: player.isPlayingPair(id: item.id) ? "pause.circle.fill" : "play.circle.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                if isSearching {
+                    let count = transcriber.matchCount(id: item.id, query: searchText)
+                    Text("\(count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.yellow.opacity(0.22)))
+                }
                 Button {
                     if let u = item.micURL ?? item.systemURL {
                         NSWorkspace.shared.activateFileViewerSelecting([u])
                     }
                 } label: { Image(systemName: "folder") }
                 .buttonStyle(.borderless).help("Mostrar no Finder")
+
+                Button {
+                    renameText = item.title ?? item.displayTitle
+                    showingRenameAlert = true
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(.borderless)
+                .help("Renomear reunião")
+
+                Button {
+                    showingDeleteAlert = true
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.borderless)
+                .help("Apagar reunião")
             }
 
-            MeetingWaveformLane(label: "Você (microfone)", systemImage: "mic.fill",
-                                url: item.micURL, color: .blue, player: player)
-            MeetingWaveformLane(label: "Outros (áudio do sistema)", systemImage: "speaker.wave.2.fill",
-                                url: item.systemURL, color: .green, player: player)
+            if effectiveExpanded {
+                MeetingWaveformLane(label: "Você (microfone)", systemImage: "mic.fill",
+                                    url: item.micURL, color: .blue, player: player)
+                MeetingWaveformLane(label: "Outros (áudio do sistema)", systemImage: "speaker.wave.2.fill",
+                                    url: item.systemURL, color: .green, player: player)
 
-            Divider()
-            transcriptSection
+                Divider()
+                transcriptSection
+            }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
+        .alert("Renomear reunião", isPresented: $showingRenameAlert) {
+            TextField("Nome da reunião", text: $renameText)
+            Button("Cancelar", role: .cancel) {}
+            Button("Salvar") { onRename(renameText) }
+        } message: {
+            Text("Use nomes de pessoas, cliente ou assunto para achar esta reunião depois.")
+        }
+        .alert("Apagar reunião?", isPresented: $showingDeleteAlert) {
+            Button("Cancelar", role: .cancel) {}
+            Button("Apagar", role: .destructive, action: onDelete)
+        } message: {
+            Text("Isso remove os áudios e a transcrição salva desta reunião.")
+        }
     }
 
     @ViewBuilder
     private var transcriptSection: some View {
         let segments = transcriber.segments(for: item.id)
+        let visibleSegments = searchText.isEmpty
+            ? segments
+            : segments.filter { MeetingSearch.matches($0, query: searchText) }
         let status = transcriber.status(for: item.id)
         let running: Bool = { if case .running = status { return true } else { return false } }()
 
@@ -178,7 +300,7 @@ struct MeetingCard: View {
             }
 
             if !segments.isEmpty {
-                ForEach(segments) { MeetingBubble(segment: $0) }
+                ForEach(visibleSegments) { MeetingBubble(segment: $0, searchText: searchText) }
             } else if case let .failed(msg) = status {
                 Label(msg, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                 transcribeControls
@@ -197,8 +319,9 @@ struct MeetingCard: View {
                 Text("Auto").tag("auto")
                 Text("PT").tag("pt")
                 Text("EN").tag("en")
+                Text("ES").tag("es")
             }
-            .pickerStyle(.segmented).frame(width: 170)
+            .pickerStyle(.segmented).frame(width: 210)
             Spacer()
         }
     }
@@ -216,7 +339,10 @@ struct MeetingWaveformLane: View {
     @State private var peaks: [Float] = []
     @State private var loading = false
 
-    private var isPlaying: Bool { url != nil && player.playingURL == url }
+    private var isPlaying: Bool {
+        guard let url else { return false }
+        return player.isPlaying(url)
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -232,7 +358,7 @@ struct MeetingWaveformLane: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.05))
                     if !peaks.isEmpty {
-                        MeetingWaveformView(peaks: peaks, color: color, progress: isPlaying ? player.progress : 0)
+                        MeetingWaveformView(peaks: peaks, color: color, progress: url.map(player.progress(for:)) ?? 0)
                             .padding(.horizontal, 4)
                     } else {
                         Text(url == nil ? "sem áudio" : (loading ? "carregando..." : ""))
@@ -259,6 +385,7 @@ struct MeetingWaveformLane: View {
 @available(macOS 15, *)
 struct MeetingBubble: View {
     let segment: MeetingSegment
+    var searchText = ""
 
     var body: some View {
         HStack(alignment: .top) {
@@ -274,7 +401,7 @@ struct MeetingBubble: View {
                     .multilineTextAlignment(segment.isMe ? .leading : .trailing)
                     .padding(8)
                     .background(RoundedRectangle(cornerRadius: 9)
-                        .fill((segment.isMe ? Color.blue : Color.green).opacity(0.12)))
+                        .fill(searchText.isEmpty ? (segment.isMe ? Color.blue : Color.green).opacity(0.12) : Color.yellow.opacity(0.22)))
             }
             if segment.isMe { Spacer(minLength: 36) }
         }

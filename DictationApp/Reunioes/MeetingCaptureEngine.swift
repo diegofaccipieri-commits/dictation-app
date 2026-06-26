@@ -6,24 +6,29 @@ import OSLog
 
 enum MeetingCaptureError: LocalizedError {
     case noDisplay
+    case noMicrophoneInput
+    case microphoneConfigurationChanged
+
     var errorDescription: String? {
         switch self {
         case .noDisplay: return "Nenhum display disponivel para captura de audio do sistema."
+        case .noMicrophoneInput: return "Nao foi possivel acessar a entrada de microfone."
+        case .microphoneConfigurationChanged: return "O dispositivo de microfone mudou durante a gravacao."
         }
     }
 }
 
-/// Captures system audio (.audio) and the microphone (.microphone) as SEPARATE tracks in one
-/// SCStream, writing each to its own .m4a. Requires macOS 15 (captureMicrophone on SCStream).
+/// Captures system audio through ScreenCaptureKit and the microphone through AVAudioEngine,
+/// writing each source to a separate .m4a track.
 @available(macOS 15, *)
-final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
+final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let micURL: URL
     private let systemURL: URL
     private let queue = DispatchQueue(label: "com.diego.dictationapp.meeting.capture")
     private let log = Logger(subsystem: "com.diego.dictationapp", category: "MeetingCapture")
 
     private var stream: SCStream?
-    private var micWriter: MeetingTrackWriter?
+    private var micCapture: MeetingMicrophoneCapture?
     private var systemWriter: MeetingTrackWriter?
 
     var onStop: ((Error?) -> Void)?
@@ -44,36 +49,45 @@ final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
         config.sampleRate = 48_000
         config.channelCount = 2
         config.excludesCurrentProcessAudio = true
-        config.captureMicrophone = true
         config.width = 2
         config.height = 2
         config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
 
-        let mic = MeetingTrackWriter(url: micURL, label: "mic")
+        let mic = MeetingMicrophoneCapture(url: micURL)
         let sys = MeetingTrackWriter(url: systemURL, label: "system")
-        self.micWriter = mic
+        mic.onStop = { [weak self] error in self?.onStop?(error) }
+        self.micCapture = mic
         self.systemWriter = sys
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
-        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
-        try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: queue)
-        try await stream.startCapture()
-        self.stream = stream
-        log.info("Meeting capture started")
+        do {
+            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
+            try await stream.startCapture()
+            self.stream = stream
+            try mic.start()
+            log.info("Meeting capture started")
+        } catch {
+            logNSError(error, stage: "Meeting capture start")
+            try? await stream.stopCapture()
+            await mic.stop()
+            cleanupAfterFailedStart()
+            throw error
+        }
     }
 
     func stop() async {
         if let stream { try? await stream.stopCapture() }
         self.stream = nil
+        let micCapture = self.micCapture
+        self.micCapture = nil
+        await micCapture?.stop()
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             queue.async {
                 let group = DispatchGroup()
-                self.micWriter?.finish(group: group)
                 self.systemWriter?.finish(group: group)
                 group.notify(queue: self.queue) { cont.resume() }
             }
         }
-        self.micWriter = nil
         self.systemWriter = nil
         log.info("Meeting capture stopped")
     }
@@ -83,15 +97,27 @@ final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
         guard sampleBuffer.isValid, CMSampleBufferGetNumSamples(sampleBuffer) > 0 else { return }
         switch type {
         case .audio: systemWriter?.append(sampleBuffer)
-        case .microphone: micWriter?.append(sampleBuffer)
         default: break
         }
     }
 
     // MARK: SCStreamDelegate
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        log.error("Meeting stream stopped with error: \(error.localizedDescription)")
+        logNSError(error, stage: "SCStream stopped")
         onStop?(error)
+    }
+
+    private func cleanupAfterFailedStart() {
+        stream = nil
+        micCapture = nil
+        systemWriter = nil
+        try? FileManager.default.removeItem(at: micURL)
+        try? FileManager.default.removeItem(at: systemURL)
+    }
+
+    private func logNSError(_ error: Error, stage: String) {
+        let ns = error as NSError
+        log.error("\(stage, privacy: .public): domain=\(ns.domain, privacy: .public) code=\(ns.code, privacy: .public) userInfo=\(ns.userInfo.description, privacy: .public)")
     }
 }
 
@@ -152,5 +178,130 @@ final class MeetingTrackWriter {
         group.enter()
         input.markAsFinished()
         writer.finishWriting { group.leave() }
+    }
+}
+
+/// Records the microphone independently from ScreenCaptureKit. Keeping the mic out of SCStream
+/// avoids startCapture failures seen when `.audio` and `.microphone` share one stream.
+final class MeetingMicrophoneCapture: @unchecked Sendable {
+    private let url: URL
+    private let queue = DispatchQueue(label: "com.diego.dictationapp.meeting.microphone")
+    private let log = Logger(subsystem: "com.diego.dictationapp", category: "MeetingMicrophone")
+
+    private var engine: AVAudioEngine?
+    private var audioFile: AVAudioFile?
+    private var configChangeObserver: NSObjectProtocol?
+    private var isStopping = false
+
+    var onStop: ((Error?) -> Void)?
+
+    init(url: URL) {
+        self.url = url
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    func start() throws {
+        let engine = AVAudioEngine()
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw MeetingCaptureError.noMicrophoneInput
+        }
+
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: format.sampleRate,
+            AVNumberOfChannelsKey: Int(format.channelCount),
+            AVEncoderBitRateKey: 128_000
+        ]
+        let file = try AVAudioFile(forWriting: url, settings: settings)
+        self.engine = engine
+        self.audioFile = file
+        self.isStopping = false
+
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+            self?.enqueue(buffer)
+        }
+
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, !self.isStopping else { return }
+            self.log.error("Meeting microphone configuration changed")
+            self.onStop?(MeetingCaptureError.microphoneConfigurationChanged)
+        }
+
+        do {
+            try engine.start()
+            log.info("Meeting microphone capture started: \(format.sampleRate, privacy: .public) Hz, \(format.channelCount, privacy: .public) channels")
+        } catch {
+            cleanupAfterStartFailure()
+            throw error
+        }
+    }
+
+    func stop() async {
+        isStopping = true
+        if let obs = configChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+            configChangeObserver = nil
+        }
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
+        engine = nil
+
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            queue.async {
+                self.audioFile = nil
+                cont.resume()
+            }
+        }
+        log.info("Meeting microphone capture stopped")
+    }
+
+    private func enqueue(_ buffer: AVAudioPCMBuffer) {
+        guard let copy = buffer.copyForAsyncWrite() else { return }
+        queue.async { [weak self] in
+            guard let self, let audioFile = self.audioFile else { return }
+            do {
+                try audioFile.write(from: copy)
+            } catch {
+                let ns = error as NSError
+                self.log.error("Meeting microphone write failed: domain=\(ns.domain, privacy: .public) code=\(ns.code, privacy: .public) userInfo=\(ns.userInfo.description, privacy: .public)")
+                self.onStop?(error)
+            }
+        }
+    }
+
+    private func cleanupAfterStartFailure() {
+        if let obs = configChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+            configChangeObserver = nil
+        }
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
+        engine = nil
+        audioFile = nil
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
+private extension AVAudioPCMBuffer {
+    func copyForAsyncWrite() -> AVAudioPCMBuffer? {
+        guard let copy = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameLength) else { return nil }
+        copy.frameLength = frameLength
+
+        let src = UnsafeMutableAudioBufferListPointer(mutableAudioBufferList)
+        let dst = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
+        guard src.count == dst.count else { return nil }
+
+        for index in 0..<src.count {
+            guard let srcData = src[index].mData, let dstData = dst[index].mData else { continue }
+            memcpy(dstData, srcData, Int(src[index].mDataByteSize))
+            dst[index].mDataByteSize = src[index].mDataByteSize
+        }
+        return copy
     }
 }
