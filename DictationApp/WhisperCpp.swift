@@ -212,14 +212,8 @@ class WhisperCppServer {
             ])
         }
 
-        // Join newline-separated segments with spaces, then merge tokenizer splits via spell checker.
         let lines = responseText.components(separatedBy: "\n")
-        var cleaned = lines
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .replacingOccurrences(of: "  ", with: " ")
-            .trimmingCharacters(in: .whitespaces)
+        var cleaned = Self.joinTranscriptionParts(lines)
 
         let normalizedText = cleaned
         let mergeEnabled = DictationDiagnostics.fragmentMergeEnabled
@@ -260,6 +254,43 @@ class WhisperCppServer {
         default:
             return ""
         }
+    }
+
+    static func joinTranscriptionParts(_ parts: [String]) -> String {
+        var result = ""
+        for part in parts {
+            var text = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+
+            if result.isEmpty {
+                result = text
+                continue
+            }
+
+            if !endsSentence(result) {
+                text = lowercasedForContinuation(text)
+            }
+            result += " " + text
+        }
+        return result
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func endsSentence(_ text: String) -> Bool {
+        guard let last = text.trimmingCharacters(in: .whitespacesAndNewlines).last else { return false }
+        return last == "." || last == "?" || last == "!" || last == "…"
+    }
+
+    private static func lowercasedForContinuation(_ text: String) -> String {
+        guard let firstIndex = text.firstIndex(where: { $0.isLetter }) else { return text }
+        let firstWord = text[firstIndex...].prefix { $0.isLetter }
+        if firstWord == "I" { return text }
+        if firstWord.count >= 2 && firstWord.count <= 5 && firstWord.allSatisfy({ $0.isUppercase }) { return text }
+
+        var out = text
+        out.replaceSubrange(firstIndex...firstIndex, with: String(out[firstIndex]).lowercased())
+        return out
     }
 
     deinit {

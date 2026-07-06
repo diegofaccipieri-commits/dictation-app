@@ -15,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.25.9</string>
+	<string>1.25.10</string>
 	<key>CFBundleVersion</key>
-	<string>1259</string>
+	<string>12510</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>

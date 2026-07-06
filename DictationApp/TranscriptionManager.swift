@@ -199,9 +199,7 @@ class TranscriptionManager {
             start += stepSamples
             index += 1
         }
-        return parts.joined(separator: " ")
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return WhisperCppServer.joinTranscriptionParts(parts)
     }
 
     // Runs transcription OUTSIDE the FinalTranscriber actor so a hung
