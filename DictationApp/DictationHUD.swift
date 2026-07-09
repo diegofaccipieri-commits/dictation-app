@@ -6,18 +6,21 @@ class DictationHUD {
     private var panel: NSPanel?
     private var anchorPoint: NSPoint = .zero
     private var phaseStart: Date = Date()
+    private var translationBadge: String?
 
-    func show(state: RecordingState, near point: NSPoint) {
+    func show(state: RecordingState, near point: NSPoint, translationBadge: String? = nil) {
         anchorPoint = point
         phaseStart = Date()
+        self.translationBadge = translationBadge
         if panel == nil { createPanel() }
         showStatus(state)
         panel?.orderFrontRegardless()
     }
 
-    func update(state: RecordingState) {
+    func update(state: RecordingState, translationBadge: String? = nil) {
         guard let panel, panel.isVisible else { return }
         phaseStart = Date()  // reset timer for each new phase
+        self.translationBadge = translationBadge
         showStatus(state)
     }
 
@@ -35,13 +38,16 @@ class DictationHUD {
 
     func hide() {
         panel?.orderOut(nil)
+        translationBadge = nil
     }
 
     private func showStatus(_ state: RecordingState) {
-        let view = HUDView(state: state, startDate: phaseStart)
+        let badge = state == .recording ? translationBadge : nil
+        let hasBadge = badge != nil
+        let size = NSSize(width: hasBadge ? 74 : 68, height: hasBadge ? 104 : 82)
+        let view = HUDView(state: state, startDate: phaseStart, translationBadge: badge, size: size)
         panel?.contentViewController = NSHostingController(rootView: view)
-        let size = NSSize(width: 68, height: 82)
-        let origin = clampToScreen(NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 90), size: size)
+        let origin = clampToScreen(NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - size.height - 8), size: size)
         panel?.setFrame(NSRect(origin: origin, size: size), display: true)
     }
 
@@ -93,9 +99,23 @@ private struct HUDTextView: View {
 private struct HUDView: View {
     let state: RecordingState
     let startDate: Date
+    let translationBadge: String?
+    let size: NSSize
 
     var body: some View {
         VStack(spacing: 5) {
+            if let translationBadge {
+                Text(translationBadge)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.red)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+            }
+
             ZStack {
                 Circle()
                     .fill(.ultraThinMaterial)
@@ -130,7 +150,7 @@ private struct HUDView: View {
             }
         }
         .padding(.vertical, 4)
-        .frame(width: 68, height: 82)
+        .frame(width: size.width, height: size.height)
     }
 
     private func elapsed(from start: Date, to now: Date) -> String {

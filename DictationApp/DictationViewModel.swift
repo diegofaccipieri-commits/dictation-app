@@ -133,7 +133,7 @@ class DictationViewModel: ObservableObject {
             try recorder.startRecording()
             state = .recording
             let cursor = NSEvent.mouseLocation
-            hud.show(state: .recording, near: cursor)
+            hud.show(state: .recording, near: cursor, translationBadge: translationMode.hudBadge)
             DictationDiagnostics.record("recording_started", fields: ["recording_id": recordingID])
         } catch {
             currentRecordingID = nil

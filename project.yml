@@ -36,8 +36,8 @@ targets:
         NSMicrophoneUsageDescription: "DictationApp needs microphone access to record your voice."
         NSSpeechRecognitionUsageDescription: "DictationApp uses speech recognition to detect the wake word Sileide."
         NSScreenCaptureUsageDescription: "O DictationApp precisa da permissao de Gravacao de Tela para capturar o audio do sistema nas reunioes (Zoom, Teams, Meet, navegador)."
-        CFBundleShortVersionString: "1.25.10"
-        CFBundleVersion: "12510"
+        CFBundleShortVersionString: "1.25.13"
+        CFBundleVersion: "12513"
         NSHumanReadableCopyright: ""
     dependencies:
       - package: WhisperKit

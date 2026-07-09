@@ -23,6 +23,18 @@ enum TranslationMode: String, CaseIterable, Identifiable {
         }
     }
 
+    var hudBadge: String? {
+        switch self {
+        case .off: return nil
+        case .ptToEn: return "PT/EN"
+        case .ptToEs: return "PT/ES"
+        case .enToPt: return "EN/PT"
+        case .enToEs: return "EN/ES"
+        case .esToPt: return "ES/PT"
+        case .esToEn: return "ES/EN"
+        }
+    }
+
     var prompt: String {
         let (source, target) = languages
         return "Translate the following text from \(source) to \(target). Output ONLY the translation, nothing else. Do not add explanations, notes, or quotes around the text.\n\nText: "
