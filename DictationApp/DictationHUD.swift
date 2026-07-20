@@ -7,8 +7,6 @@ private enum HUDStyle {
     // Brand orange over the graphite HUD (translation badge).
     static let badgeOrange = Color(red: 1, green: 162 / 255, blue: 87 / 255)
     static let recordRed = Color(red: 1, green: 45 / 255, blue: 58 / 255)
-    static let connectorWidth: CGFloat = 14
-    static let connectorHeight: CGFloat = 5
 }
 
 // Floating HUD near the cursor — shows recording state and phase timer.
@@ -54,7 +52,7 @@ class DictationHUD {
     private func showStatus(_ state: RecordingState) {
         let badge = state == .recording ? translationBadge : nil
         let hasBadge = badge != nil
-        let size = NSSize(width: hasBadge ? 74 : 68, height: hasBadge ? 104 : 82)
+        let size = NSSize(width: hasBadge ? 80 : 72, height: hasBadge ? 112 : 90)
         let view = HUDView(state: state, startDate: phaseStart, translationBadge: badge, size: size)
         panel?.contentViewController = NSHostingController(rootView: view)
         let origin = clampToScreen(NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - size.height - 8), size: size)
@@ -110,6 +108,8 @@ private struct HUDTextView: View {
     }
 }
 
+// Prototype layout: separate floating pieces with a 5pt gap — badge pill above,
+// 52pt graphite circle with the state, timer pill below. No connectors.
 private struct HUDView: View {
     let state: RecordingState
     let startDate: Date
@@ -117,41 +117,39 @@ private struct HUDView: View {
     let size: NSSize
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 5) {
             if let translationBadge {
                 TranslationBadgeView(text: translationBadge)
-                OpaqueBadgeConnector()
             }
 
             ZStack {
                 Circle()
                     .fill(HUDStyle.darkBackground)
+                    .shadow(color: .black.opacity(0.28), radius: 6, y: 2)
 
                 switch state {
                 case .recording:
                     RecordingDot()
                 case .transcribing:
-                    ProgressView()
-                        .scaleEffect(0.8)
-                        .tint(.orange)
+                    HUDSpinner()
                 case .correcting:
-                    Image(systemName: "checkmark.circle")
-                        .foregroundColor(.green)
-                        .font(.system(size: 20))
+                    Image(systemName: "checkmark")
+                        .foregroundColor(Color(red: 48 / 255, green: 209 / 255, blue: 88 / 255))
+                        .font(.system(size: 20, weight: .bold))
                 case .idle:
                     EmptyView()
                 }
             }
-            .frame(width: 48, height: 48)
+            .frame(width: 52, height: 52)
 
             if state == .recording || state == .transcribing {
-                OpaqueBadgeConnector()
-
                 TimelineView(.animation(minimumInterval: 1)) { context in
                     Text(elapsed(from: startDate, to: context.date))
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundColor(state == .recording ? .red : .orange)
-                        .padding(.horizontal, 7)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(state == .recording
+                                         ? Color(red: 1, green: 107 / 255, blue: 107 / 255)
+                                         : Color(red: 1, green: 179 / 255, blue: 64 / 255))
+                        .padding(.horizontal, 9)
                         .padding(.vertical, 2)
                         .background(HUDStyle.darkBackground)
                         .clipShape(Capsule())
@@ -168,11 +166,20 @@ private struct HUDView: View {
     }
 }
 
-private struct OpaqueBadgeConnector: View {
+// Amber ring spinner (18pt, 2.5pt stroke) matching the prototype.
+private struct HUDSpinner: View {
+    @State private var spinning = false
+    private let amber = Color(red: 1, green: 179 / 255, blue: 64 / 255)
+
     var body: some View {
-        Rectangle()
-            .fill(HUDStyle.darkBackground)
-            .frame(width: HUDStyle.connectorWidth, height: HUDStyle.connectorHeight)
+        Circle()
+            .trim(from: 0.22, to: 1)
+            .stroke(amber, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            .background(Circle().stroke(amber.opacity(0.25), lineWidth: 2.5))
+            .frame(width: 18, height: 18)
+            .rotationEffect(.degrees(spinning ? 360 : 0))
+            .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spinning)
+            .onAppear { spinning = true }
     }
 }
 
@@ -196,6 +203,7 @@ private struct TranslationBadgeView: View {
     }
 }
 
+// Prototype recording state: static 20pt red dot with a soft pulsing ring around it.
 private struct RecordingDot: View {
     @State private var pulsing = false
 
@@ -204,16 +212,13 @@ private struct RecordingDot: View {
             Circle()
                 .fill(HUDStyle.recordRed.opacity(0.3))
                 .frame(width: 36, height: 36)
-                .scaleEffect(pulsing ? 1.2 : 0.9)
+                .scaleEffect(pulsing ? 1.25 : 0.95)
+                .opacity(pulsing ? 0.5 : 1)
                 .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
 
             Circle()
                 .fill(HUDStyle.recordRed)
-                .frame(width: 18, height: 18)
-
-            Image(systemName: "mic.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.white)
+                .frame(width: 20, height: 20)
         }
         .onAppear { pulsing = true }
     }
