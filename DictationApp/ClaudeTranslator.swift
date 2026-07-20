@@ -53,11 +53,12 @@ actor ClaudeTranslator {
                 process.executableURL = URL(fileURLWithPath: candidate)
                 process.currentDirectoryURL = FileManager.default.temporaryDirectory
 
-                if usesEnv {
-                    process.arguments = ["claude", "-p", prompt, "--max-turns", "1", "--output-format", "text", "--model", model, "--no-session-persistence"]
-                } else {
-                    process.arguments = ["-p", prompt, "--max-turns", "1", "--output-format", "text", "--model", model, "--no-session-persistence"]
-                }
+                // --strict-mcp-config: skip loading the user's MCP servers. Translation needs none of
+                // them, and booting all of them (Google, Zoom, WhatsApp, peers, etc.) added ~18-25s of
+                // cold-start per translation. With this flag a translation drops from ~30s to ~7s.
+                let baseArgs = ["-p", prompt, "--max-turns", "1", "--output-format", "text",
+                                "--model", model, "--no-session-persistence", "--strict-mcp-config"]
+                process.arguments = usesEnv ? ["claude"] + baseArgs : baseArgs
 
                 var env = ProcessInfo.processInfo.environment
                 let currentPath = env["PATH"] ?? ""
