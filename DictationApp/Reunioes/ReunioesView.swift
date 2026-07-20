@@ -159,6 +159,8 @@ struct ReunioesView: View {
                                 player.stop()
                                 transcriber.clear(id: item.id)
                                 recorder.delete(item)
+                            } onTrimSaved: {
+                                recorder.loadMeetings()
                             }
                         }
                     }
@@ -170,10 +172,10 @@ struct ReunioesView: View {
     }
 
     static func elapsed(_ t: TimeInterval) -> String {
-        let s = Int(t); return String(format: "%02d:%02d", s / 60, s % 60)
+        MeetingTrimLogic.label(t)
     }
     static func timestamp(_ t: TimeInterval) -> String {
-        let s = Int(t.rounded()); return String(format: "%02d:%02d", s / 60, s % 60)
+        MeetingTrimLogic.label(t)
     }
 }
 
@@ -187,11 +189,17 @@ struct MeetingCard: View {
     let searchText: String
     let onRename: (String) -> Void
     let onDelete: () -> Void
+    let onTrimSaved: () -> Void
     @State private var language = TranscriptionLanguage.current.whisperCode
     @State private var isExpanded = true
     @State private var renameText = ""
     @State private var showingRenameAlert = false
     @State private var showingDeleteAlert = false
+    @State private var isTrimming = false
+    @State private var trimSelection: MeetingTrimLogic.Selection?
+    @State private var trimDuration: Double = 0
+    @State private var isExportingTrim = false
+    @State private var trimError: String?
 
     private var isSearching: Bool { !searchText.isEmpty }
     private var effectiveExpanded: Bool { isExpanded || isSearching }
@@ -233,6 +241,22 @@ struct MeetingCard: View {
                         .padding(.vertical, 3)
                         .background(Capsule().fill(Color.yellow.opacity(0.22)))
                 }
+                if !pairURLs.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isTrimming.toggle()
+                            trimSelection = nil
+                            trimError = nil
+                            if isTrimming { isExpanded = true }
+                        }
+                    } label: {
+                        Image(systemName: "scissors")
+                            .foregroundStyle(isTrimming ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    }
+                    .buttonStyle(.borderless)
+                    .help(isTrimming ? "Sair do modo de recorte" : "Recortar um trecho desta reunião")
+                }
+
                 Button {
                     if let u = item.micURL ?? item.systemURL {
                         NSWorkspace.shared.activateFileViewerSelecting([u])
@@ -261,12 +285,18 @@ struct MeetingCard: View {
 
             if effectiveExpanded {
                 MeetingWaveformLane(label: "Você (microfone)", systemImage: "mic.fill",
-                                    url: item.micURL, color: .blue, player: player) { progress in
+                                    url: item.micURL, color: .blue, player: player,
+                                    isTrimming: isTrimming, trimSelection: $trimSelection) { progress in
                     player.playPair(id: item.id, urls: pairURLs, from: progress)
                 }
                 MeetingWaveformLane(label: "Outros (áudio do sistema)", systemImage: "speaker.wave.2.fill",
-                                    url: item.systemURL, color: .green, player: player) { progress in
+                                    url: item.systemURL, color: .green, player: player,
+                                    isTrimming: isTrimming, trimSelection: $trimSelection) { progress in
                     player.playPair(id: item.id, urls: pairURLs, from: progress)
+                }
+
+                if isTrimming {
+                    trimControls
                 }
 
                 Divider()
@@ -275,6 +305,13 @@ struct MeetingCard: View {
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
+        .task(id: item.id) {
+            let urls = pairURLs
+            guard !urls.isEmpty else { return }
+            trimDuration = await Task.detached(priority: .utility) {
+                urls.map { MeetingWaveformLoader.duration(for: $0) }.max() ?? 0
+            }.value
+        }
         .alert("Renomear reunião", isPresented: $showingRenameAlert) {
             TextField("Nome da reunião", text: $renameText)
             Button("Cancelar", role: .cancel) {}
@@ -324,6 +361,81 @@ struct MeetingCard: View {
         }
     }
 
+    // MARK: Trim (recorte)
+
+    @ViewBuilder
+    private var trimControls: some View {
+        let range = trimSelection.flatMap { MeetingTrimLogic.timeRange($0, duration: trimDuration) }
+
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: "scissors").foregroundStyle(.tint)
+                if isExportingTrim {
+                    ProgressView().controlSize(.small)
+                    Text("Exportando recorte...").font(.caption).foregroundStyle(.secondary)
+                } else if let range {
+                    Text("\(ReunioesView.timestamp(range.start)) - \(ReunioesView.timestamp(range.end))")
+                        .font(.caption.monospacedDigit())
+                    Text("(\(ReunioesView.timestamp(range.end - range.start)))")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    Button {
+                        if let sel = trimSelection {
+                            player.playPair(id: item.id, urls: pairURLs,
+                                            from: sel.startFraction, until: sel.endFraction)
+                        }
+                    } label: { Label("Ouvir seleção", systemImage: "play.circle") }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    Button {
+                        saveTrim()
+                    } label: { Label("Salvar recorte", systemImage: "square.and.arrow.down") }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                } else {
+                    Text("Arraste sobre a waveform para selecionar o trecho a recortar.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Cancelar") {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isTrimming = false
+                        trimSelection = nil
+                        trimError = nil
+                    }
+                }
+                .buttonStyle(.borderless).controlSize(.small)
+                .disabled(isExportingTrim)
+            }
+            if let trimError {
+                Label(trimError, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.07)))
+    }
+
+    @MainActor
+    private func saveTrim() {
+        guard let selection = trimSelection, !isExportingTrim else { return }
+        isExportingTrim = true
+        trimError = nil
+        player.stop()
+        Task {
+            do {
+                let newId = try await MeetingTrimmer.export(item: item, selection: selection)
+                NSLog("DictationApp: [TRIM] recorte salvo: %@", newId)
+                isExportingTrim = false
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isTrimming = false
+                    trimSelection = nil
+                }
+                onTrimSaved()
+            } catch {
+                isExportingTrim = false
+                trimError = error.localizedDescription
+            }
+        }
+    }
+
     private var transcribeControls: some View {
         HStack(spacing: 10) {
             Button { transcriber.transcribe(item, language: language) } label: {
@@ -350,13 +462,24 @@ struct MeetingWaveformLane: View {
     let url: URL?
     let color: Color
     @ObservedObject var player: MeetingPlayer
+    var isTrimming = false
+    @Binding var trimSelection: MeetingTrimLogic.Selection?
     let onSeek: (Double) -> Void
     @State private var peaks: [Float] = []
     @State private var loading = false
+    @State private var duration: Double = 0
 
     private var isPlaying: Bool {
         guard let url else { return false }
         return player.isPlaying(url)
+    }
+
+    private var timeText: String? {
+        if isPlaying, player.totalSeconds > 0 {
+            return "\(ReunioesView.timestamp(player.currentSeconds)) / \(ReunioesView.timestamp(player.totalSeconds))"
+        }
+        guard duration > 0 else { return nil }
+        return ReunioesView.timestamp(duration)
     }
 
     var body: some View {
@@ -369,7 +492,15 @@ struct MeetingWaveformLane: View {
             .buttonStyle(.plain).disabled(url == nil)
 
             VStack(alignment: .leading, spacing: 3) {
-                Label(label, systemImage: systemImage).font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Label(label, systemImage: systemImage).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if let timeText {
+                        Text(timeText)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(isPlaying ? AnyShapeStyle(color) : AnyShapeStyle(.secondary))
+                    }
+                }
                 ZStack {
                     RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.05))
                     if !peaks.isEmpty {
@@ -379,30 +510,72 @@ struct MeetingWaveformLane: View {
                         Text(url == nil ? "sem áudio" : (loading ? "carregando..." : ""))
                             .font(.caption2).foregroundStyle(.secondary)
                     }
+                    if isTrimming, let sel = trimSelection {
+                        GeometryReader { proxy in
+                            let x0 = CGFloat(sel.startFraction) * proxy.size.width
+                            let x1 = CGFloat(sel.endFraction) * proxy.size.width
+                            Rectangle()
+                                .fill(Color.accentColor.opacity(0.22))
+                                .frame(width: max(1, x1 - x0))
+                                .offset(x: x0)
+                            Rectangle()
+                                .fill(Color.accentColor)
+                                .frame(width: 1.5)
+                                .offset(x: x0)
+                            Rectangle()
+                                .fill(Color.accentColor)
+                                .frame(width: 1.5)
+                                .offset(x: x1)
+                        }
+                        .allowsHitTesting(false)
+                    }
                     if url != nil {
                         GeometryReader { proxy in
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .gesture(DragGesture(minimumDistance: 0).onEnded { value in
-                                    guard proxy.size.width > 0 else { return }
-                                    let progress = Double(min(1, max(0, value.location.x / proxy.size.width)))
-                                    onSeek(progress)
-                                })
+                            if isTrimming {
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .gesture(trimGesture(width: proxy.size.width))
+                            } else {
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .gesture(seekGesture(width: proxy.size.width))
+                            }
                         }
                     }
                 }
                 .frame(height: 44)
-                .help("Clique na waveform para ouvir as duas faixas a partir deste ponto")
+                .help(isTrimming
+                      ? "Arraste para selecionar o trecho a recortar"
+                      : "Clique na waveform para ouvir as duas faixas a partir deste ponto")
             }
         }
         .task(id: url) {
             guard let url else { return }
             loading = true
             let computed = await Task.detached(priority: .utility) {
-                MeetingWaveformLoader.peaks(for: url, buckets: 600)
+                (peaks: MeetingWaveformLoader.peaks(for: url, buckets: 600),
+                 duration: MeetingWaveformLoader.duration(for: url))
             }.value
-            peaks = computed
+            peaks = computed.peaks
+            duration = computed.duration
             loading = false
+        }
+    }
+
+    private func seekGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0).onEnded { value in
+            guard width > 0 else { return }
+            let progress = Double(min(1, max(0, value.location.x / width)))
+            onSeek(progress)
+        }
+    }
+
+    private func trimGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0).onChanged { value in
+            guard width > 0 else { return }
+            trimSelection = MeetingTrimLogic.Selection(
+                Double(value.startLocation.x / width),
+                Double(value.location.x / width))
         }
     }
 }

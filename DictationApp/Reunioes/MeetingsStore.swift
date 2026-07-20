@@ -53,7 +53,7 @@ enum MeetingsStore {
                             systemURL: urls.system,
                             title: loadTitle(id: stamp))
             }
-            .sorted { $0.date > $1.date }
+            .sorted { $0.date == $1.date ? $0.id < $1.id : $0.date > $1.date }
     }
 
     static func rename(_ item: MeetingItem, title: String) throws {
@@ -67,12 +67,25 @@ enum MeetingsStore {
         try data.write(to: url, options: .atomic)
     }
 
+    /// Best-effort title write (used by the trimmer for auto-generated titles).
+    static func setTitle(id: String, title: String) {
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, let data = try? JSONEncoder().encode(Metadata(title: clean)) else { return }
+        try? data.write(to: metadataURL(id: id), options: .atomic)
+    }
+
+    /// Sidecar kinds that belong to one meeting id. Matching must be exact ("<id>_<kind>"), not by
+    /// prefix: the id of a trimmed copy extends the original's id ("<id>_r1"), so a prefix match
+    /// on the original would also delete its recortes.
+    private static let fileKinds: Set<String> = ["mic", "system", "transcript", "metadata"]
+
     static func delete(_ item: MeetingItem) throws {
         let fm = FileManager.default
         let files = try fm.contentsOfDirectory(at: MeetingPaths.audioDir, includingPropertiesForKeys: nil)
+        let prefix = "meeting_\(item.id)_"
         for url in files {
             let name = url.deletingPathExtension().lastPathComponent
-            guard name.hasPrefix("meeting_\(item.id)_") else { continue }
+            guard name.hasPrefix(prefix), fileKinds.contains(String(name.dropFirst(prefix.count))) else { continue }
             try? fm.removeItem(at: url)
         }
     }

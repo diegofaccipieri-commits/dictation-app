@@ -60,6 +60,7 @@ enum MeetingPaths {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyyMMdd_HHmmss"
-        return f.date(from: stamp)
+        // Trimmed copies extend the stamp ("20260716_110056_r1"); parse the date prefix.
+        return f.date(from: stamp) ?? f.date(from: String(stamp.prefix(15)))
     }
 }

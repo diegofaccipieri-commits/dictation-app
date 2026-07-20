@@ -36,6 +36,14 @@ enum MeetingWaveformLoader {
         if maxPeak > 0 { for i in 0..<buckets { result[i] = result[i] / maxPeak } }
         return result
     }
+
+    /// Track duration in seconds (frame count from the header; no decode).
+    static func duration(for url: URL) -> Double {
+        guard let file = try? AVAudioFile(forReading: url) else { return 0 }
+        let rate = file.processingFormat.sampleRate
+        guard rate > 0 else { return 0 }
+        return Double(file.length) / rate
+    }
 }
 
 /// Draws a centered peak waveform; `progress` tints the played portion.
@@ -67,10 +75,14 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var playingURL: URL?
     @Published var playingPairId: String?
     @Published var progress: Double = 0
+    @Published var currentSeconds: Double = 0
+    @Published var totalSeconds: Double = 0
     private var player: AVAudioPlayer?
     private var combinedPlayer: AVPlayer?
     private var pairURLs: Set<URL> = []
     private var pairDuration: TimeInterval = 0
+    /// When set (selection preview), playback stops once progress reaches this fraction.
+    private var stopAtProgress: Double?
     private var timer: Timer?
 
     func toggle(_ url: URL) {
@@ -94,6 +106,8 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             p.play()
             player = p
             playingURL = url
+            totalSeconds = p.duration
+            currentSeconds = p.currentTime
             startTimer()
         } catch { playingURL = nil }
     }
@@ -103,16 +117,18 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         playPair(id: id, urls: urls, from: 0)
     }
 
-    func playPair(id: String, urls: [URL], from progress: Double) {
+    func playPair(id: String, urls: [URL], from progress: Double, until stopAt: Double? = nil) {
         let validURLs = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !validURLs.isEmpty else { return }
         let clampedProgress = min(1, max(0, progress))
 
         if playingPairId == id, let player = combinedPlayer, pairDuration > 0 {
+            stopAtProgress = stopAt
             seek(player, to: clampedProgress * pairDuration)
             return
         }
         stop()
+        stopAtProgress = stopAt
 
         do {
             let composition = AVMutableComposition()
@@ -136,6 +152,8 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             pairURLs = Set(validURLs)
             pairDuration = duration.seconds.isFinite ? duration.seconds : 0
             playingPairId = id
+            totalSeconds = pairDuration
+            currentSeconds = clampedProgress * pairDuration
             seek(player, to: clampedProgress * pairDuration)
             startTimer()
         } catch {
@@ -164,9 +182,12 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         combinedPlayer = nil
         pairURLs = []
         pairDuration = 0
+        stopAtProgress = nil
         playingURL = nil
         playingPairId = nil
         progress = 0
+        currentSeconds = 0
+        totalSeconds = 0
     }
 
     private func seek(_ player: AVPlayer, to seconds: TimeInterval) {
@@ -183,12 +204,17 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 guard let self else { return }
                 if let p = self.player, p.duration > 0 {
                     self.progress = p.currentTime / p.duration
+                    self.currentSeconds = p.currentTime
                 } else if let p = self.combinedPlayer, self.pairDuration > 0 {
                     let current = p.currentTime().seconds
                     self.progress = current / self.pairDuration
+                    self.currentSeconds = current
                     if p.timeControlStatus != .playing && current >= self.pairDuration {
                         self.stop()
                     }
+                }
+                if let stopAt = self.stopAtProgress, self.progress >= stopAt {
+                    self.stop()
                 }
             }
         }
