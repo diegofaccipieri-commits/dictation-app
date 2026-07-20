@@ -225,9 +225,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if meetingsWindow == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 940, height: 620),
-                styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
                 backing: .buffered, defer: false)
             window.title = "Reuniões"
+            // Header do app assume a barra de título (traffic lights sobre o cabeçalho laranja).
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.backgroundColor = AppColors.windowBGNS
             window.contentViewController = NSHostingController(rootView: ReunioesView())
             window.center()
             window.isReleasedWhenClosed = false

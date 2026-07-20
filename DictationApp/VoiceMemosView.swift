@@ -30,6 +30,7 @@ struct VoiceMemosView: View {
         }
         .frame(minWidth: 560, minHeight: 440)
         .tint(AppColors.voice)
+        .background(AppColors.windowBG)
         .onAppear { if store.memos.isEmpty { store.reload() } }
     }
 
@@ -80,7 +81,8 @@ struct VoiceMemosView: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
             .frame(width: 210)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.06)))
+            .background(RoundedRectangle(cornerRadius: 7).fill(AppColors.panel))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppColors.border, lineWidth: 1))
             Button {
                 store.reload()
             } label: { Image(systemName: "arrow.clockwise") }

@@ -30,6 +30,7 @@ struct ContentView: View {
         }
         .padding(14)
         .tint(AppColors.voice)
+        .background(AppColors.windowBG)
         .frame(width: 360, height: baseHeight + CGFloat(viewModel.history.count) * 40)
         .onChange(of: viewModel.state) { newState in
             recordingStart = newState == .recording ? Date() : nil
@@ -70,8 +71,8 @@ struct ContentView: View {
         }
         .frame(height: 68)
         .padding(10)
-        .background(Color(NSColor.textBackgroundColor))
-        .cornerRadius(9)
+        .background(RoundedRectangle(cornerRadius: 9).fill(AppColors.panel))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(AppColors.borderSoft, lineWidth: 1))
     }
 
     // MARK: Main action
@@ -246,8 +247,8 @@ struct ContentView: View {
             }
         }
         .padding(10)
-        .background(Color(NSColor.textBackgroundColor))
-        .cornerRadius(9)
+        .background(RoundedRectangle(cornerRadius: 9).fill(AppColors.panel))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(AppColors.borderSoft, lineWidth: 1))
     }
 
     private func settingRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
@@ -365,11 +366,10 @@ private struct HistoryRow: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
-        .background(Color(NSColor.textBackgroundColor))
-        .cornerRadius(7)
+        .background(RoundedRectangle(cornerRadius: 7).fill(AppColors.panel))
         .overlay(
             RoundedRectangle(cornerRadius: 7)
-                .stroke(hovered ? AppColors.voice.opacity(0.6) : Color.clear, lineWidth: 1)
+                .stroke(hovered ? AppColors.voice.opacity(0.6) : AppColors.borderSoft, lineWidth: 1)
         )
         .onHover { hovered = $0 }
     }
