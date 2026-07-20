@@ -176,11 +176,12 @@ struct ContentView: View {
                     set: { viewModel.setTranscriptionLanguage($0) }
                 )) {
                     ForEach(TranscriptionLanguage.allCases) { lang in
-                        Text(lang.label).tag(lang)
+                        Text(lang.shortLabel).tag(lang)
                     }
                 }
                 .pickerStyle(.segmented)
-                .controlSize(.small)
+                .controlSize(.mini)
+                .fixedSize()
             }
 
             settingRow("Tradução") {
@@ -193,7 +194,8 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .controlSize(.small)
+                .controlSize(.mini)
+                .fixedSize()
             }
 
             settingRow("Ditado ao vivo") {
@@ -206,7 +208,8 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .controlSize(.small)
+                .controlSize(.mini)
+                .fixedSize()
             }
 
             settingRow("Documentos") {
@@ -219,7 +222,8 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .controlSize(.small)
+                .controlSize(.mini)
+                .fixedSize()
             }
 
             settingRow("Tecla dupla") {
@@ -229,7 +233,8 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .controlSize(.small)
+                .controlSize(.mini)
+                .fixedSize()
                 .onChange(of: selectedKey) { newKey in
                     fnMonitor?.doubleTapKey = newKey
                 }

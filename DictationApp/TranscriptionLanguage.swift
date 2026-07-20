@@ -19,6 +19,16 @@ enum TranscriptionLanguage: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Compact form for segmented controls (popover Ajustes).
+    var shortLabel: String {
+        switch self {
+        case .auto: return "Auto"
+        case .pt: return "PT"
+        case .en: return "EN"
+        case .es: return "ES"
+        }
+    }
+
     static var current: TranscriptionLanguage {
         TranscriptionLanguage(rawValue: UserDefaults.standard.string(forKey: "transcriptionLanguage") ?? "") ?? .auto
     }
