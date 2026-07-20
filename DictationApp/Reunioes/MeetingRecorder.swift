@@ -12,14 +12,24 @@ final class MeetingRecorder: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var permissions = MeetingPermissions()
     @Published private(set) var meetings: [MeetingItem] = []
+    @Published private(set) var microphoneLevels = Array(repeating: Float(0), count: 32)
+    @Published private(set) var systemLevels = Array(repeating: Float(0), count: 32)
 
     private var engine: MeetingCaptureEngine?
     private var timer: Timer?
     private var startDate: Date?
+    private var lastMicrophoneLevelUpdate = Date.distantPast
+    private var lastSystemLevelUpdate = Date.distantPast
 
     func onAppear() {
         refreshPermissions()
         loadMeetings()
+        // Recover crash-orphaned CAF tracks (app died mid-recording) into playable .m4a files.
+        guard !isRecording else { return }
+        Task {
+            let recovered = await MeetingCrashSafeTrack.recoverOrphans()
+            if recovered > 0 { await MainActor.run { self.loadMeetings() } }
+        }
     }
 
     // MARK: Permissions
@@ -54,11 +64,30 @@ final class MeetingRecorder: ObservableObject {
                 await self?.stop()
             }
         }
+        engine.onMicrophoneLevel = { [weak self] level in
+            Task { @MainActor in self?.appendMicrophoneLevel(level) }
+        }
+        engine.onSystemLevel = { [weak self] level in
+            Task { @MainActor in self?.appendSystemLevel(level) }
+        }
+        // Digital-silence alert: jumps in front of every app; the user is in a meeting, not here.
+        engine.onSystemSilenceAlert = { [weak engine] silentFor in
+            Task { @MainActor in
+                let panel = MeetingAlertPanel.shared
+                panel.onRestart = { engine?.restartSystemCaptureManually() }
+                panel.onIgnore = nil
+                panel.show(message: "O áudio do sistema está mudo há \(Int(silentFor))s mesmo após reinício automático da captura. Se há som na reunião, clique em Reiniciar captura. Se ninguém está falando, pode ignorar.")
+            }
+        }
+        engine.onSystemSilenceCleared = {
+            Task { @MainActor in MeetingAlertPanel.shared.hide() }
+        }
         self.engine = engine
         do {
             try await engine.start()
             startDate = Date()
             elapsed = 0
+            resetLiveLevels()
             startTimer()
             isRecording = true
         } catch {
@@ -71,9 +100,11 @@ final class MeetingRecorder: ObservableObject {
     func stop() async {
         guard let engine else { return }
         stopTimer()
+        MeetingAlertPanel.shared.hide()
         await engine.stop()
         self.engine = nil
         isRecording = false
+        resetLiveLevels()
         loadMeetings()
     }
 
@@ -111,4 +142,35 @@ final class MeetingRecorder: ObservableObject {
     }
 
     private func stopTimer() { timer?.invalidate(); timer = nil; startDate = nil }
+
+    // MARK: Live input meters
+    private func appendMicrophoneLevel(_ rawLevel: Float) {
+        guard isRecording else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastMicrophoneLevelUpdate) >= 1.0 / 16.0 else { return }
+        lastMicrophoneLevelUpdate = now
+        append(rawLevel, to: &microphoneLevels)
+    }
+
+    private func appendSystemLevel(_ rawLevel: Float) {
+        guard isRecording else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastSystemLevelUpdate) >= 1.0 / 16.0 else { return }
+        lastSystemLevelUpdate = now
+        append(rawLevel, to: &systemLevels)
+    }
+
+    private func append(_ rawLevel: Float, to levels: inout [Float]) {
+        guard rawLevel.isFinite else { return }
+        let visibleLevel = min(1, sqrt(max(0, rawLevel)) * 3.5)
+        levels.append(visibleLevel)
+        if levels.count > 32 { levels.removeFirst(levels.count - 32) }
+    }
+
+    private func resetLiveLevels() {
+        microphoneLevels = Array(repeating: 0, count: 32)
+        systemLevels = Array(repeating: 0, count: 32)
+        lastMicrophoneLevelUpdate = .distantPast
+        lastSystemLevelUpdate = .distantPast
+    }
 }

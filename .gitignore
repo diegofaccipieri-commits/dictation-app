@@ -4,3 +4,5 @@ build/
 xcuserdata/
 DerivedData/
 build-reunioes/
+ReunioesLogicTests/.build/
+.claude/

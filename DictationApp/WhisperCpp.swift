@@ -579,6 +579,8 @@ enum WhisperCppCLI {
     /// Transcribe a 16 kHz mono WAV into timestamped segments. `onProgress` receives 0–100.
     static func transcribeSegments(wav: URL,
                                    language: String = "auto",
+                                   suppressNonSpeech: Bool = false,
+                                   noSpeechThreshold: Float? = nil,
                                    onProgress: ((Int) -> Void)? = nil) async throws -> [Segment] {
         guard FileManager.default.isExecutableFile(atPath: cliPath) else { throw CLIError.binaryMissing }
         guard FileManager.default.fileExists(atPath: modelPath) else { throw CLIError.modelMissing }
@@ -590,7 +592,7 @@ enum WhisperCppCLI {
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: cliPath)
-        proc.arguments = [
+        var arguments = [
             "-m", modelPath,
             "-f", wav.path,
             "-oj", "-of", outBase.path,
@@ -599,6 +601,9 @@ enum WhisperCppCLI {
             "-bs", "1", "-bo", "1",   // greedy: fast, fine for transcription
             "--print-progress",
         ]
+        if suppressNonSpeech { arguments.append("--suppress-nst") }
+        if let noSpeechThreshold { arguments += ["--no-speech-thold", String(noSpeechThreshold)] }
+        proc.arguments = arguments
         proc.standardOutput = FileHandle.nullDevice
         let errPipe = Pipe()
         proc.standardError = errPipe

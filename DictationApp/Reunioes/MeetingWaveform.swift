@@ -75,10 +75,22 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     func toggle(_ url: URL) {
         if playingURL == url { stop(); return }
+        play(url, from: 0)
+    }
+
+    func play(_ url: URL, from progress: Double) {
+        let clampedProgress = min(1, max(0, progress))
+        if playingURL == url, let player {
+            player.currentTime = player.duration * clampedProgress
+            player.play()
+            startTimer()
+            return
+        }
         stop()
         do {
             let p = try AVAudioPlayer(contentsOf: url)
             p.delegate = self
+            p.currentTime = p.duration * clampedProgress
             p.play()
             player = p
             playingURL = url
@@ -87,9 +99,19 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func togglePair(id: String, urls: [URL]) {
+        if playingPairId == id { stop(); return }
+        playPair(id: id, urls: urls, from: 0)
+    }
+
+    func playPair(id: String, urls: [URL], from progress: Double) {
         let validURLs = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !validURLs.isEmpty else { return }
-        if playingPairId == id { stop(); return }
+        let clampedProgress = min(1, max(0, progress))
+
+        if playingPairId == id, let player = combinedPlayer, pairDuration > 0 {
+            seek(player, to: clampedProgress * pairDuration)
+            return
+        }
         stop()
 
         do {
@@ -114,7 +136,7 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             pairURLs = Set(validURLs)
             pairDuration = duration.seconds.isFinite ? duration.seconds : 0
             playingPairId = id
-            player.play()
+            seek(player, to: clampedProgress * pairDuration)
             startTimer()
         } catch {
             stop()
@@ -145,6 +167,13 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         playingURL = nil
         playingPairId = nil
         progress = 0
+    }
+
+    private func seek(_ player: AVPlayer, to seconds: TimeInterval) {
+        let time = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak player] _ in
+            player?.play()
+        }
     }
 
     private func startTimer() {

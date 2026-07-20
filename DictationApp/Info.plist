@@ -15,11 +15,13 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.25.13</string>
+	<string>1.25.24</string>
 	<key>CFBundleVersion</key>
-	<string>12513</string>
+	<string>12524</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>O DictationApp precisa gravar o audio do sistema para capturar o que os outros participantes falam nas reunioes.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>

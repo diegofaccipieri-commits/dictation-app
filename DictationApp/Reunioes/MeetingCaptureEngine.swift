@@ -18,8 +18,12 @@ enum MeetingCaptureError: LocalizedError {
     }
 }
 
-/// Captures system audio through ScreenCaptureKit and the microphone through AVAudioEngine,
-/// writing each source to a separate .m4a track.
+/// Captures system audio (Core Audio process tap; ScreenCaptureKit as fallback) and the microphone
+/// (AVAudioEngine), writing each source to a crash-tolerant CAF that is remuxed to .m4a on stop.
+///
+/// A `MeetingSilenceWatchdog` monitors the system track: sustained digital silence triggers a
+/// transparent capture restart and, if silence persists, `onSystemSilenceAlert` so the UI can jump
+/// in front of the user (who is in a meeting, not looking at this app).
 @available(macOS 15, *)
 final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let micURL: URL
@@ -27,15 +31,23 @@ final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate, @u
     private let queue = DispatchQueue(label: "com.diego.dictationapp.meeting.capture")
     private let log = Logger(subsystem: "com.diego.dictationapp", category: "MeetingCapture")
 
-    private var stream: SCStream?
+    private enum SystemSource { case none, tap(SystemAudioTapCapture), sck(SCStream) }
+    private var systemSource: SystemSource = .none
     private var micCapture: MeetingMicrophoneCapture?
-    private var systemWriter: MeetingTrackWriter?
-    private var systemHealth = MeetingSystemAudioHealth()
+    private var systemTrack: MeetingCrashSafeTrack?
+    private var watchdog = MeetingSilenceWatchdog()
+    private var systemFrames: Int64 = 0
+    private var systemSampleRate: Double = 48_000
     private var isStopping = false
-    private var isRestartingSystemStream = false
-    private var systemRestartCount = 0
+    private var isRestartingSystem = false
 
     var onStop: ((Error?) -> Void)?
+    var onMicrophoneLevel: ((Float) -> Void)?
+    var onSystemLevel: ((Float) -> Void)?
+    /// Sustained digital silence on the system track even after an automatic restart.
+    var onSystemSilenceAlert: ((Double) -> Void)?
+    /// Audible system audio returned after an alert.
+    var onSystemSilenceCleared: (() -> Void)?
 
     init(micURL: URL, systemURL: URL) {
         self.micURL = micURL
@@ -45,69 +57,131 @@ final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
     func start() async throws {
         let mic = MeetingMicrophoneCapture(url: micURL)
-        let sys = MeetingTrackWriter(url: systemURL, label: "system")
         mic.onStop = { [weak self] error in self?.onStop?(error) }
-        self.micCapture = mic
-        self.systemWriter = sys
-        self.isStopping = false
-        self.isRestartingSystemStream = false
-        self.systemRestartCount = 0
+        mic.onLevel = { [weak self] level in self?.onMicrophoneLevel?(level) }
+        micCapture = mic
+        systemTrack = MeetingCrashSafeTrack(finalURL: systemURL, label: "system")
+        watchdog.reset()
+        systemFrames = 0
+        isStopping = false
+        isRestartingSystem = false
 
-        let stream = try await makeSystemStream()
         do {
-            try await stream.startCapture()
-            self.stream = stream
+            try await startSystemSource()
             try mic.start()
             log.info("Meeting capture started")
+            NSLog("DictationApp: [MEET] capture started")
         } catch {
             logNSError(error, stage: "Meeting capture start")
-            try? await stream.stopCapture()
+            await teardownSystemSource()
             await mic.stop()
-            cleanupAfterFailedStart()
+            micCapture = nil
+            systemTrack = nil
+            try? FileManager.default.removeItem(at: MeetingCrashSafeTrack.spoolURL(for: micURL))
+            try? FileManager.default.removeItem(at: MeetingCrashSafeTrack.spoolURL(for: systemURL))
             throw error
         }
     }
 
     func stop() async {
         isStopping = true
-        if let stream { try? await stream.stopCapture() }
-        self.stream = nil
-        let micCapture = self.micCapture
-        self.micCapture = nil
-        await micCapture?.stop()
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            queue.async {
-                let group = DispatchGroup()
-                self.systemWriter?.finish(group: group)
-                group.notify(queue: self.queue) { cont.resume() }
-            }
-        }
-        self.systemWriter = nil
+        await teardownSystemSource()
+        let mic = micCapture
+        micCapture = nil
+        await mic?.stop()
+
+        // Finalize (remux CAF → m4a) both tracks.
+        let track = systemTrack
+        systemTrack = nil
+        await track?.finalize()
+        await mic?.finalizeTrack()
         log.info("Meeting capture stopped")
     }
 
-    // MARK: SCStreamOutput
-    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard stream === self.stream else { return }
-        guard sampleBuffer.isValid, CMSampleBufferGetNumSamples(sampleBuffer) > 0 else { return }
-        switch type {
-        case .audio:
-            if let silence = systemHealth.observe(sampleBuffer) {
-                recoverSystemCapture(after: silence)
+    /// Manual restart from the alert panel button.
+    func restartSystemCaptureManually() {
+        queue.async { [weak self] in self?.restartSystemSource(reason: "manual") }
+    }
+
+    // MARK: - System source (tap primary, SCK fallback)
+
+    private func startSystemSource() async throws {
+        let tap = SystemAudioTapCapture()
+        tap.onBuffer = { [weak self] buffer in
+            self?.queue.async { self?.handleSystemBuffer(buffer) }
+        }
+        do {
+            try tap.start()
+            systemSource = .tap(tap)
+            log.info("System audio via Core Audio process tap")
+            NSLog("DictationApp: [MEET] system source = CoreAudio tap")
+            return
+        } catch {
+            logNSError(error, stage: "Process tap unavailable; falling back to ScreenCaptureKit")
+        }
+
+        let stream = try await makeSCKStream()
+        try await stream.startCapture()
+        systemSource = .sck(stream)
+        log.info("System audio via ScreenCaptureKit (fallback)")
+        NSLog("DictationApp: [MEET] system source = SCK fallback")
+    }
+
+    private func teardownSystemSource() async {
+        switch systemSource {
+        case .tap(let tap): tap.stop()
+        case .sck(let stream): try? await stream.stopCapture()
+        case .none: break
+        }
+        systemSource = .none
+    }
+
+    private func restartSystemSource(reason: String) {
+        guard !isStopping, !isRestartingSystem else { return }
+        isRestartingSystem = true
+        log.error("Restarting system capture (\(reason, privacy: .public))")
+        NSLog("DictationApp: [MEET] restarting system capture (%@)", reason)
+        Task { [weak self] in
+            guard let self else { return }
+            await self.teardownSystemSource()
+            do {
+                try await self.startSystemSource()
+            } catch {
+                self.logNSError(error, stage: "System capture restart failed")
+                self.onStop?(error)
             }
-            systemWriter?.append(sampleBuffer)
-        default: break
+            self.isRestartingSystem = false
         }
     }
 
-    // MARK: SCStreamDelegate
-    func stream(_ stream: SCStream, didStopWithError error: Error) {
-        logNSError(error, stage: "SCStream stopped")
-        if isStopping || isRestartingSystemStream || !(stream === self.stream) { return }
-        onStop?(error)
+    /// Single funnel for system audio from either source: level meter, watchdog, crash-safe write.
+    private func handleSystemBuffer(_ buffer: AVAudioPCMBuffer) {
+        guard !isStopping else { return }
+        systemSampleRate = buffer.format.sampleRate
+        let rms = buffer.meetingRMS
+        onSystemLevel?(rms)
+
+        systemFrames += Int64(buffer.frameLength)
+        let pts = Double(systemFrames) / systemSampleRate
+        switch watchdog.observe(pts: pts, rms: rms) {
+        case .none:
+            break
+        case .restartCapture:
+            restartSystemSource(reason: "digital silence")
+        case .showAlert(let silentFor):
+            log.error("System audio digitally silent for \(Int(silentFor), privacy: .public)s; alerting user")
+            NSLog("DictationApp: [MEET] ALERT system silent for %.0fs", silentFor)
+            onSystemSilenceAlert?(silentFor)
+        case .clearAlert:
+            onSystemSilenceCleared?()
+        }
+
+        systemTrack?.write(buffer)
     }
 
-    private func makeSystemStream() async throws -> SCStream {
+    // MARK: - ScreenCaptureKit fallback
+
+    private func makeSCKStream() async throws -> SCStream {
         let content = try await SCShareableContent.current
         guard let display = content.displays.first else { throw MeetingCaptureError.noDisplay }
         let filter = SCContentFilter(display: display, excludingWindows: [])
@@ -127,38 +201,31 @@ final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate, @u
         return stream
     }
 
-    private func recoverSystemCapture(after silence: MeetingSystemAudioSilence) {
-        guard !isStopping, !isRestartingSystemStream else { return }
-        isRestartingSystemStream = true
-        systemRestartCount += 1
-        let attempt = systemRestartCount
-        let oldStream = stream
-        log.error("System audio silence detected for \(silence.silentForText, privacy: .public)s; restarting system capture attempt \(attempt, privacy: .public)")
-
-        Task { [weak self, oldStream] in
-            guard let self else { return }
-            do {
-                let newStream = try await self.makeSystemStream()
-                try await newStream.startCapture()
-                self.stream = newStream
-                self.systemHealth.reset()
-                try? await oldStream?.stopCapture()
-                self.isRestartingSystemStream = false
-                self.log.info("System audio capture restarted after digital silence; attempt \(attempt, privacy: .public)")
-            } catch {
-                self.logNSError(error, stage: "System audio capture restart")
-                self.isRestartingSystemStream = false
-                self.onStop?(error)
-            }
-        }
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard case .sck(let current) = systemSource, current === stream else { return }
+        guard type == .audio, sampleBuffer.isValid, CMSampleBufferGetNumSamples(sampleBuffer) > 0 else { return }
+        guard let pcm = Self.pcmBuffer(from: sampleBuffer) else { return }
+        handleSystemBuffer(pcm)
     }
 
-    private func cleanupAfterFailedStart() {
-        stream = nil
-        micCapture = nil
-        systemWriter = nil
-        try? FileManager.default.removeItem(at: micURL)
-        try? FileManager.default.removeItem(at: systemURL)
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        logNSError(error, stage: "SCStream stopped")
+        guard case .sck(let current) = systemSource, current === stream else { return }
+        if isStopping || isRestartingSystem { return }
+        onStop?(error)
+    }
+
+    private static func pcmBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
+        guard let desc = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc) else { return nil }
+        var format = asbd.pointee
+        guard let avFormat = AVAudioFormat(streamDescription: &format) else { return nil }
+        let frames = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: avFormat, frameCapacity: frames) else { return nil }
+        buffer.frameLength = frames
+        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+            sampleBuffer, at: 0, frameCount: Int32(frames), into: buffer.mutableAudioBufferList)
+        return status == noErr ? buffer : nil
     }
 
     private func logNSError(_ error: Error, stage: String) {
@@ -167,202 +234,22 @@ final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate, @u
     }
 }
 
-struct MeetingSystemAudioSilence {
-    let silentFor: Double
-    let elapsed: Double
-    let observedBuffers: Int
-    let audibleBuffers: Int
-
-    var silentForText: String { String(format: "%.1f", silentFor) }
-}
-
-/// Tracks whether ScreenCaptureKit is still delivering useful system audio. A stream can keep
-/// emitting valid audio buffers after the captured app audio has gone to digital silence.
-final class MeetingSystemAudioHealth {
-    private let log = Logger(subsystem: "com.diego.dictationapp", category: "MeetingSystemAudioHealth")
-    private let silenceThreshold: Double = 30
-
-    private var firstPTS: Double?
-    private var lastAudiblePTS: Double?
-    private var lastWarnPTS: Double?
-    private var observedBuffers = 0
-    private var audibleBuffers = 0
-
-    func observe(_ sampleBuffer: CMSampleBuffer) -> MeetingSystemAudioSilence? {
-        guard let pts = sampleBuffer.presentationSeconds,
-              let rms = sampleBuffer.audioRMS else { return nil }
-
-        if firstPTS == nil { firstPTS = pts }
-        observedBuffers += 1
-
-        // Treat true/near digital silence separately from quiet speech. The failure seen in the
-        // field produced exact zero buffers for the rest of the meeting.
-        if rms > 0.00001 {
-            lastAudiblePTS = pts
-            audibleBuffers += 1
-            return nil
-        }
-
-        guard let first = firstPTS, let lastAudiblePTS, audibleBuffers > 0 else { return nil }
-        let elapsed = pts - first
-        let silentFor = pts - lastAudiblePTS
-        guard elapsed > 60, silentFor > silenceThreshold else { return nil }
-        if let lastWarnPTS, pts - lastWarnPTS < 60 { return nil }
-        lastWarnPTS = pts
-        let silentForText = String(format: "%.1f", silentFor)
-        log.error("System audio has been digitally silent for \(silentForText, privacy: .public)s; observedBuffers=\(self.observedBuffers, privacy: .public) audibleBuffers=\(self.audibleBuffers, privacy: .public)")
-        return MeetingSystemAudioSilence(silentFor: silentFor,
-                                         elapsed: elapsed,
-                                         observedBuffers: observedBuffers,
-                                         audibleBuffers: audibleBuffers)
-    }
-
-    func reset() {
-        firstPTS = nil
-        lastAudiblePTS = nil
-        lastWarnPTS = nil
-        observedBuffers = 0
-        audibleBuffers = 0
-    }
-}
-
-private extension CMSampleBuffer {
-    var presentationSeconds: Double? {
-        let pts = CMSampleBufferGetPresentationTimeStamp(self)
-        guard pts.isValid, pts.isNumeric else { return nil }
-        return CMTimeGetSeconds(pts)
-    }
-
-    var audioRMS: Float? {
-        guard let block = CMSampleBufferGetDataBuffer(self),
-              let format = CMSampleBufferGetFormatDescription(self),
-              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee,
-              asbd.mFormatID == kAudioFormatLinearPCM else { return nil }
-
-        var lengthAtOffset = 0
-        var totalLength = 0
-        var dataPointer: UnsafeMutablePointer<Int8>?
-        let status = CMBlockBufferGetDataPointer(block, atOffset: 0,
-                                                 lengthAtOffsetOut: &lengthAtOffset,
-                                                 totalLengthOut: &totalLength,
-                                                 dataPointerOut: &dataPointer)
-        guard status == kCMBlockBufferNoErr, let dataPointer, totalLength > 0 else { return nil }
-
-        let bytesPerFrame = Int(asbd.mBytesPerFrame)
-        guard bytesPerFrame > 0 else { return nil }
-        let frameCount = totalLength / bytesPerFrame
-        guard frameCount > 0 else { return nil }
-
-        let channels = max(1, Int(asbd.mChannelsPerFrame))
-        let sampleCount = frameCount * channels
-        guard sampleCount > 0 else { return nil }
-
-        if (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0, asbd.mBitsPerChannel == 32 {
-            let ptr = UnsafeRawPointer(dataPointer).assumingMemoryBound(to: Float.self)
-            var sum: Float = 0
-            for i in 0..<sampleCount { sum += ptr[i] * ptr[i] }
-            return sqrt(sum / Float(sampleCount))
-        }
-
-        if (asbd.mFormatFlags & kAudioFormatFlagIsSignedInteger) != 0, asbd.mBitsPerChannel == 16 {
-            let ptr = UnsafeRawPointer(dataPointer).assumingMemoryBound(to: Int16.self)
-            var sum: Float = 0
-            for i in 0..<sampleCount {
-                let x = Float(ptr[i]) / Float(Int16.max)
-                sum += x * x
-            }
-            return sqrt(sum / Float(sampleCount))
-        }
-
-        return nil
-    }
-}
-
-/// Writes one audio track (CMSampleBuffers) to an .m4a, configured lazily from the first buffer.
-final class MeetingTrackWriter {
-    private let url: URL
-    private let label: String
-    private let log = Logger(subsystem: "com.diego.dictationapp", category: "MeetingTrackWriter")
-
-    private var writer: AVAssetWriter?
-    private var input: AVAssetWriterInput?
-    private var failed = false
-    private(set) var sampleCount = 0
-
-    init(url: URL, label: String) {
-        self.url = url
-        self.label = label
-        try? FileManager.default.removeItem(at: url)
-    }
-
-    func append(_ sampleBuffer: CMSampleBuffer) {
-        guard !failed else { return }
-        if writer == nil { configure(with: sampleBuffer) }
-        guard let writer, let input, writer.status == .writing else { return }
-        if input.isReadyForMoreMediaData {
-            if input.append(sampleBuffer) {
-                sampleCount += 1
-            } else {
-                failed = true
-                let message = writer.error?.localizedDescription ?? "unknown append failure"
-                log.error("MeetingTrackWriter[\(self.label, privacy: .public)] append failed: \(message, privacy: .public)")
-            }
-        }
-    }
-
-    private func configure(with sampleBuffer: CMSampleBuffer) {
-        guard let fmt = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let asbdPtr = CMAudioFormatDescriptionGetStreamBasicDescription(fmt) else {
-            failed = true; return
-        }
-        let asbd = asbdPtr.pointee
-        do {
-            let w = try AVAssetWriter(outputURL: url, fileType: .m4a)
-            let settings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: asbd.mSampleRate,
-                AVNumberOfChannelsKey: Int(asbd.mChannelsPerFrame),
-                AVEncoderBitRateKey: 128_000
-            ]
-            let i = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
-            i.expectsMediaDataInRealTime = true
-            guard w.canAdd(i) else { failed = true; return }
-            w.add(i)
-            guard w.startWriting() else { failed = true; return }
-            w.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-            self.writer = w
-            self.input = i
-        } catch {
-            failed = true
-            log.error("MeetingTrackWriter[\(self.label, privacy: .public)] error: \(error.localizedDescription)")
-        }
-    }
-
-    func finish(group: DispatchGroup) {
-        guard let writer, let input, writer.status == .writing else { return }
-        group.enter()
-        input.markAsFinished()
-        writer.finishWriting { group.leave() }
-    }
-}
-
-/// Records the microphone independently from ScreenCaptureKit. Keeping the mic out of SCStream
-/// avoids startCapture failures seen when `.audio` and `.microphone` share one stream.
+/// Records the microphone independently (AVAudioEngine tap) into a crash-tolerant CAF track.
+@available(macOS 15, *)
 final class MeetingMicrophoneCapture: @unchecked Sendable {
-    private let url: URL
     private let queue = DispatchQueue(label: "com.diego.dictationapp.meeting.microphone")
     private let log = Logger(subsystem: "com.diego.dictationapp", category: "MeetingMicrophone")
 
     private var engine: AVAudioEngine?
-    private var audioFile: AVAudioFile?
+    private var track: MeetingCrashSafeTrack?
     private var configChangeObserver: NSObjectProtocol?
     private var isStopping = false
 
     var onStop: ((Error?) -> Void)?
+    var onLevel: ((Float) -> Void)?
 
     init(url: URL) {
-        self.url = url
-        try? FileManager.default.removeItem(at: url)
+        self.track = MeetingCrashSafeTrack(finalURL: url, label: "mic")
     }
 
     func start() throws {
@@ -372,20 +259,15 @@ final class MeetingMicrophoneCapture: @unchecked Sendable {
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw MeetingCaptureError.noMicrophoneInput
         }
-
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: format.sampleRate,
-            AVNumberOfChannelsKey: Int(format.channelCount),
-            AVEncoderBitRateKey: 128_000
-        ]
-        let file = try AVAudioFile(forWriting: url, settings: settings)
         self.engine = engine
-        self.audioFile = file
         self.isStopping = false
 
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
-            self?.enqueue(buffer)
+            guard let self, let copy = buffer.meetingCopy() else { return }
+            self.queue.async {
+                self.onLevel?(copy.meetingRMS)
+                self.track?.write(copy)
+            }
         }
 
         configChangeObserver = NotificationCenter.default.addObserver(
@@ -416,28 +298,18 @@ final class MeetingMicrophoneCapture: @unchecked Sendable {
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
-
+        // Drain pending writes queued from the tap before finalization.
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            queue.async {
-                self.audioFile = nil
-                cont.resume()
-            }
+            queue.async { cont.resume() }
         }
         log.info("Meeting microphone capture stopped")
     }
 
-    private func enqueue(_ buffer: AVAudioPCMBuffer) {
-        guard let copy = buffer.copyForAsyncWrite() else { return }
-        queue.async { [weak self] in
-            guard let self, let audioFile = self.audioFile else { return }
-            do {
-                try audioFile.write(from: copy)
-            } catch {
-                let ns = error as NSError
-                self.log.error("Meeting microphone write failed: domain=\(ns.domain, privacy: .public) code=\(ns.code, privacy: .public) userInfo=\(ns.userInfo.description, privacy: .public)")
-                self.onStop?(error)
-            }
-        }
+    /// Remux the CAF into the final .m4a. Call after `stop()`.
+    func finalizeTrack() async {
+        let track = self.track
+        self.track = nil
+        await track?.finalize()
     }
 
     private func cleanupAfterStartFailure() {
@@ -448,25 +320,6 @@ final class MeetingMicrophoneCapture: @unchecked Sendable {
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
-        audioFile = nil
-        try? FileManager.default.removeItem(at: url)
-    }
-}
-
-private extension AVAudioPCMBuffer {
-    func copyForAsyncWrite() -> AVAudioPCMBuffer? {
-        guard let copy = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameLength) else { return nil }
-        copy.frameLength = frameLength
-
-        let src = UnsafeMutableAudioBufferListPointer(mutableAudioBufferList)
-        let dst = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
-        guard src.count == dst.count else { return nil }
-
-        for index in 0..<src.count {
-            guard let srcData = src[index].mData, let dstData = dst[index].mData else { continue }
-            memcpy(dstData, srcData, Int(src[index].mDataByteSize))
-            dst[index].mDataByteSize = src[index].mDataByteSize
-        }
-        return copy
+        track = nil
     }
 }

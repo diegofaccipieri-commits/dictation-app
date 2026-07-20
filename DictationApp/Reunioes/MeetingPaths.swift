@@ -26,6 +26,14 @@ enum MeetingPaths {
         return d
     }
 
+    /// Local (non-Dropbox) spool for in-progress crash-safe PCM tracks. Kept out of Dropbox so
+    /// multi-GB transient files never sync; final .m4a files land in `audioDir`.
+    static var spoolDir: URL {
+        let d = legacyRoot.appendingPathComponent("Spool", isDirectory: true)
+        try? fm.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
     static var isUsingDropbox: Bool {
         root.path.hasPrefix(fm.homeDirectoryForCurrentUser.appendingPathComponent("Dropbox").path)
     }

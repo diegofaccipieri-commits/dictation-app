@@ -53,6 +53,7 @@ struct ReunioesView: View {
                 if recorder.isRecording {
                     Label(Self.elapsed(recorder.elapsed), systemImage: "clock")
                         .font(.system(.title3, design: .monospaced)).foregroundStyle(.red)
+                    liveRecordingMeters
                 }
                 Spacer()
             }
@@ -63,12 +64,20 @@ struct ReunioesView: View {
         .padding()
     }
 
+    private var liveRecordingMeters: some View {
+        HStack(spacing: 10) {
+            MeetingLiveTrackMeter(label: "Você", systemImage: "mic.fill", color: .blue,
+                                   levels: recorder.microphoneLevels)
+            MeetingLiveTrackMeter(label: "Mac", systemImage: "speaker.wave.2.fill", color: .green,
+                                   levels: recorder.systemLevels)
+        }
+    }
+
     private var permissionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Permissões").font(.headline)
             permissionRow("Microfone", granted: recorder.permissions.microphone) { recorder.requestMicrophone() }
-            permissionRow("Gravação de tela / áudio do sistema", granted: recorder.permissions.screenRecording) { recorder.requestScreenRecording() }
-            Text("A permissão de gravação de tela costuma exigir reabrir o app depois de concedida.")
+            Text("O macOS pedirá a permissão de Áudio do Sistema na primeira gravação — basta aceitar.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .padding().frame(maxWidth: .infinity, alignment: .leading)
@@ -186,6 +195,7 @@ struct MeetingCard: View {
 
     private var isSearching: Bool { !searchText.isEmpty }
     private var effectiveExpanded: Bool { isExpanded || isSearching }
+    private var pairURLs: [URL] { [item.micURL, item.systemURL].compactMap { $0 } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -251,9 +261,13 @@ struct MeetingCard: View {
 
             if effectiveExpanded {
                 MeetingWaveformLane(label: "Você (microfone)", systemImage: "mic.fill",
-                                    url: item.micURL, color: .blue, player: player)
+                                    url: item.micURL, color: .blue, player: player) { progress in
+                    player.playPair(id: item.id, urls: pairURLs, from: progress)
+                }
                 MeetingWaveformLane(label: "Outros (áudio do sistema)", systemImage: "speaker.wave.2.fill",
-                                    url: item.systemURL, color: .green, player: player)
+                                    url: item.systemURL, color: .green, player: player) { progress in
+                    player.playPair(id: item.id, urls: pairURLs, from: progress)
+                }
 
                 Divider()
                 transcriptSection
@@ -336,6 +350,7 @@ struct MeetingWaveformLane: View {
     let url: URL?
     let color: Color
     @ObservedObject var player: MeetingPlayer
+    let onSeek: (Double) -> Void
     @State private var peaks: [Float] = []
     @State private var loading = false
 
@@ -364,8 +379,20 @@ struct MeetingWaveformLane: View {
                         Text(url == nil ? "sem áudio" : (loading ? "carregando..." : ""))
                             .font(.caption2).foregroundStyle(.secondary)
                     }
+                    if url != nil {
+                        GeometryReader { proxy in
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .gesture(DragGesture(minimumDistance: 0).onEnded { value in
+                                    guard proxy.size.width > 0 else { return }
+                                    let progress = Double(min(1, max(0, value.location.x / proxy.size.width)))
+                                    onSeek(progress)
+                                })
+                        }
+                    }
                 }
                 .frame(height: 44)
+                .help("Clique na waveform para ouvir as duas faixas a partir deste ponto")
             }
         }
         .task(id: url) {
@@ -376,6 +403,51 @@ struct MeetingWaveformLane: View {
             }.value
             peaks = computed
             loading = false
+        }
+    }
+}
+
+@available(macOS 15, *)
+private struct MeetingLiveTrackMeter: View {
+    let label: String
+    let systemImage: String
+    let color: Color
+    let levels: [Float]
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Label(label, systemImage: systemImage)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            MeetingLiveWaveform(levels: levels, color: color)
+                .frame(width: 66, height: 20)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Nível de áudio de \(label)")
+    }
+}
+
+@available(macOS 15, *)
+private struct MeetingLiveWaveform: View {
+    let levels: [Float]
+    let color: Color
+
+    var body: some View {
+        Canvas { context, size in
+            guard !levels.isEmpty else { return }
+            let barWidth = size.width / CGFloat(levels.count)
+            let middle = size.height / 2
+            for (index, level) in levels.enumerated() {
+                let height = max(2, CGFloat(level) * size.height)
+                let rect = CGRect(x: CGFloat(index) * barWidth,
+                                  y: middle - height / 2,
+                                  width: max(1, barWidth - 1),
+                                  height: height)
+                context.fill(Path(roundedRect: rect, cornerRadius: 0.7), with: .color(color))
+            }
         }
     }
 }

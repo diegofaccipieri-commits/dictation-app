@@ -2,6 +2,7 @@ import Foundation
 
 actor ClaudeTranslator {
     private let timeout: TimeInterval = 60
+    private let translationModel = "sonnet"
 
     private let claudeCandidates: [String] = {
         let paths = [
@@ -35,7 +36,7 @@ actor ClaudeTranslator {
         for candidate in claudeCandidates {
             if let translated = await runClaude(prompt: prompt, using: candidate) {
                 let elapsed = ProcessInfo.processInfo.systemUptime - start
-                NSLog("DictationApp: [TRANSLATE] done in %.1fs (%@) via %@: '%@'", elapsed, mode.displayName, candidate, String(translated.prefix(80)))
+                NSLog("DictationApp: [TRANSLATE] done in %.1fs (%@, model=%@) via %@: '%@'", elapsed, mode.displayName, translationModel, candidate, String(translated.prefix(80)))
                 return translated
             }
         }
@@ -45,6 +46,7 @@ actor ClaudeTranslator {
     private func runClaude(prompt: String, using candidate: String) async -> String? {
         let usesEnv = candidate == "/usr/bin/env"
         let commandTimeout = timeout
+        let model = translationModel
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
@@ -52,9 +54,9 @@ actor ClaudeTranslator {
                 process.currentDirectoryURL = FileManager.default.temporaryDirectory
 
                 if usesEnv {
-                    process.arguments = ["claude", "-p", prompt, "--max-turns", "1", "--output-format", "text"]
+                    process.arguments = ["claude", "-p", prompt, "--max-turns", "1", "--output-format", "text", "--model", model, "--no-session-persistence"]
                 } else {
-                    process.arguments = ["-p", prompt, "--max-turns", "1", "--output-format", "text"]
+                    process.arguments = ["-p", prompt, "--max-turns", "1", "--output-format", "text", "--model", model, "--no-session-persistence"]
                 }
 
                 var env = ProcessInfo.processInfo.environment

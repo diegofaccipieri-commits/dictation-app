@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+private enum HUDStyle {
+    static let darkBackground = Color(red: 18 / 255, green: 20 / 255, blue: 24 / 255)
+    static let darkStroke = Color.white.opacity(0.14)
+    static let royalBlue = Color(red: 65 / 255, green: 105 / 255, blue: 225 / 255)
+    static let recordRed = Color(red: 1, green: 45 / 255, blue: 58 / 255)
+    static let connectorWidth: CGFloat = 14
+    static let connectorHeight: CGFloat = 5
+}
+
 // Floating HUD near the cursor — shows recording state and phase timer.
 class DictationHUD {
     private var panel: NSPanel?
@@ -72,7 +81,7 @@ class DictationHUD {
         p.level = .popUpMenu
         p.isOpaque = false
         p.backgroundColor = .clear
-        p.hasShadow = true
+        p.hasShadow = false
         p.ignoresMouseEvents = true
         panel = p
     }
@@ -84,15 +93,19 @@ private struct HUDTextView: View {
     var body: some View {
         Text(text)
             .font(.system(size: 13, weight: .medium))
-            .foregroundColor(.primary)
+            .foregroundColor(.white)
             .lineLimit(2)
             .multilineTextAlignment(.leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial)
+            .background(HUDStyle.darkBackground)
             .clipShape(RoundedRectangle(cornerRadius: 10))
-            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(HUDStyle.darkStroke, lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.28), radius: 6, y: 2)
     }
 }
 
@@ -103,23 +116,15 @@ private struct HUDView: View {
     let size: NSSize
 
     var body: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 0) {
             if let translationBadge {
-                Text(translationBadge)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(.red)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
+                TranslationBadgeView(text: translationBadge)
+                OpaqueBadgeConnector()
             }
 
             ZStack {
                 Circle()
-                    .fill(.ultraThinMaterial)
-                    .shadow(radius: 4)
+                    .fill(HUDStyle.darkBackground)
 
                 switch state {
                 case .recording:
@@ -127,6 +132,7 @@ private struct HUDView: View {
                 case .transcribing:
                     ProgressView()
                         .scaleEffect(0.8)
+                        .tint(.orange)
                 case .correcting:
                     Image(systemName: "checkmark.circle")
                         .foregroundColor(.green)
@@ -138,13 +144,15 @@ private struct HUDView: View {
             .frame(width: 48, height: 48)
 
             if state == .recording || state == .transcribing {
+                OpaqueBadgeConnector()
+
                 TimelineView(.animation(minimumInterval: 1)) { context in
                     Text(elapsed(from: startDate, to: context.date))
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundColor(state == .recording ? .red : .orange)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
-                        .background(.ultraThinMaterial)
+                        .background(HUDStyle.darkBackground)
                         .clipShape(Capsule())
                 }
             }
@@ -159,19 +167,47 @@ private struct HUDView: View {
     }
 }
 
+private struct OpaqueBadgeConnector: View {
+    var body: some View {
+        Rectangle()
+            .fill(HUDStyle.darkBackground)
+            .frame(width: HUDStyle.connectorWidth, height: HUDStyle.connectorHeight)
+    }
+}
+
+private struct TranslationBadgeView: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .foregroundColor(HUDStyle.royalBlue)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(HUDStyle.darkBackground)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(HUDStyle.royalBlue, lineWidth: 1)
+            )
+    }
+}
+
 private struct RecordingDot: View {
     @State private var pulsing = false
 
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color.red.opacity(0.3))
+                .fill(HUDStyle.recordRed.opacity(0.3))
                 .frame(width: 36, height: 36)
                 .scaleEffect(pulsing ? 1.2 : 0.9)
                 .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
 
             Circle()
-                .fill(Color.red)
+                .fill(HUDStyle.recordRed)
                 .frame(width: 18, height: 18)
 
             Image(systemName: "mic.fill")
