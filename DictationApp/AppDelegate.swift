@@ -52,7 +52,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] state in
                 let iconName = state == .recording ? "mic.fill" : "mic"
                 self?.statusItem?.button?.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Dictation")
-                self?.statusItem?.button?.contentTintColor = state == .recording ? .systemRed : nil
+                // Brand orange when idle/ready; red only while recording.
+                self?.statusItem?.button?.contentTintColor = state == .recording ? .systemRed : AppColors.voiceNS
                 self?.fnMonitor.isRecording = (state == .recording)
             }
             .store(in: &cancellables)
@@ -114,47 +115,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let stateItem = NSMenuItem(title: viewModel.state == .recording ? "Stop Recording" : "Start Recording",
-                                   action: #selector(toggleRecording), keyEquivalent: "")
-        stateItem.target = self
-        menu.addItem(stateItem)
+        menu.addItem(item(viewModel.state == .recording ? "Parar gravação" : "Iniciar ditado",
+                          symbol: viewModel.state == .recording ? "stop.circle" : "record.circle",
+                          action: #selector(toggleRecording)))
 
         menu.addItem(.separator())
 
-        let fileItem = NSMenuItem(title: "Transcrever Arquivo…", action: #selector(startFileTranscription), keyEquivalent: "")
-        fileItem.target = self
-        menu.addItem(fileItem)
-
-        let batchItem = NSMenuItem(title: "Transcrever Pasta…", action: #selector(startBatchTranscription), keyEquivalent: "")
-        batchItem.target = self
-        menu.addItem(batchItem)
-
-        let memosItem = NSMenuItem(title: "Transcrever do Voice Memos…", action: #selector(showVoiceMemos), keyEquivalent: "")
-        memosItem.target = self
-        menu.addItem(memosItem)
+        menu.addItem(item("Transcrever arquivo…", symbol: "doc.text", action: #selector(startFileTranscription)))
+        menu.addItem(item("Transcrever pasta…", symbol: "folder", action: #selector(startBatchTranscription)))
+        menu.addItem(item("Transcrever do Voice Memos…", symbol: "headphones", action: #selector(showVoiceMemos)))
 
         menu.addItem(.separator())
 
-        let reunioesItem = NSMenuItem(title: "Gravar Reunião…", action: #selector(showReunioes), keyEquivalent: "")
-        reunioesItem.target = self
-        menu.addItem(reunioesItem)
+        menu.addItem(item("Reuniões…", symbol: "person.2.wave.2", action: #selector(showReunioes)))
 
         menu.addItem(.separator())
 
-        let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
-        updateItem.target = self
-        menu.addItem(updateItem)
+        menu.addItem(item("Buscar atualização…", symbol: "arrow.triangle.2.circlepath", action: #selector(checkForUpdates)))
+        menu.addItem(item("Reiniciar", symbol: "arrow.counterclockwise.circle", action: #selector(restartApp)))
 
-        let restartItem = NSMenuItem(title: "Restart", action: #selector(restartApp), keyEquivalent: "")
-        restartItem.target = self
-        menu.addItem(restartItem)
-
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Sair", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quitItem.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: nil)
         menu.addItem(quitItem)
 
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil  // remove after showing so left-click still works
+    }
+
+    private func item(_ title: String, symbol: String, action: Selector) -> NSMenuItem {
+        let it = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        it.target = self
+        it.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        return it
     }
 
     @objc func startFileTranscription() {
@@ -231,7 +224,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if meetingsWindow == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 640, height: 540),
+                contentRect: NSRect(x: 0, y: 0, width: 940, height: 620),
                 styleMask: [.titled, .closable, .resizable, .miniaturizable],
                 backing: .buffered, defer: false)
             window.title = "Reuniões"

@@ -5,89 +5,171 @@ struct ContentView: View {
     @ObservedObject var viewModel: DictationViewModel
     var fnMonitor: FnKeyMonitor?
     @State private var selectedKey: DoubleTapKey = DoubleTapKey(rawValue: UserDefaults.standard.string(forKey: "doubleTapKey") ?? "") ?? .fn
+    @State private var recordingStart: Date?
 
     var body: some View {
         VStack(spacing: 12) {
-            // Status
-            HStack(spacing: 6) {
-                if viewModel.isModelLoading {
-                    ProgressView().scaleEffect(0.6)
-                }
-                Text(statusText)
-                    .font(.subheadline)
-                    .foregroundColor(statusColor)
-            }
-            .animation(.easeInOut, value: viewModel.state)
-
-            // Current transcription
-            ScrollView {
-                Text(viewModel.transcribedText.isEmpty ? "Transcription will appear here..." : viewModel.transcribedText)
-                    .font(.body)
-                    .foregroundColor(viewModel.transcribedText.isEmpty ? .secondary : .primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-            .frame(height: 80)
-            .padding(8)
-            .background(Color(NSColor.textBackgroundColor))
-            .cornerRadius(8)
-
-            // Record button
-            Button(action: viewModel.toggle) {
-                HStack {
-                    Image(systemName: buttonIcon)
-                    Text(buttonLabel)
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(buttonColor)
-            .disabled(viewModel.state == .transcribing || !viewModel.isModelLoaded)
+            statusRow
+            transcriptBox
+            dictationMain
 
             if let error = viewModel.errorMessage {
                 Text(error)
                     .font(.caption)
                     .foregroundColor(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // History
-            if !viewModel.history.isEmpty {
-                Divider()
+            if !viewModel.history.isEmpty { historySection }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Recent")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            settingsSection
 
-                    ForEach(viewModel.history, id: \.self) { item in
-                        HistoryRow(text: item) {
-                            viewModel.reuseHistoryItem(item)
+            if let status = viewModel.batchStatus { batchBanner(status) }
+
+            footerHints
+        }
+        .padding(14)
+        .tint(AppColors.voice)
+        .frame(width: 360, height: baseHeight + CGFloat(viewModel.history.count) * 40)
+        .onChange(of: viewModel.state) { newState in
+            recordingStart = newState == .recording ? Date() : nil
+        }
+    }
+
+    private var baseHeight: CGFloat { viewModel.history.isEmpty ? 460 : 486 }
+
+    // MARK: Status
+
+    private var statusRow: some View {
+        HStack(spacing: 8) {
+            if viewModel.isModelLoading {
+                ProgressView().scaleEffect(0.5)
+            } else {
+                Circle()
+                    .fill(statusDotColor)
+                    .frame(width: 8, height: 8)
+            }
+            Text(statusText)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(statusTextColor)
+            Spacer()
+            Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
+                .font(.caption2)
+                .foregroundColor(Color(NSColor.tertiaryLabelColor))
+        }
+        .animation(.easeInOut, value: viewModel.state)
+    }
+
+    private var transcriptBox: some View {
+        ScrollView {
+            Text(viewModel.transcribedText.isEmpty ? "A transcrição aparece aqui e é colada no app em foco..." : viewModel.transcribedText)
+                .font(.system(size: 13))
+                .foregroundColor(viewModel.transcribedText.isEmpty ? .secondary : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .frame(height: 68)
+        .padding(10)
+        .background(Color(NSColor.textBackgroundColor))
+        .cornerRadius(9)
+    }
+
+    // MARK: Main action
+
+    private var dictationMain: some View {
+        HStack(spacing: 14) {
+            Button(action: viewModel.toggle) {
+                ZStack {
+                    Circle()
+                        .fill(viewModel.state == .recording ? AppColors.recording : AppColors.voice)
+                        .frame(width: 54, height: 54)
+                        .shadow(color: (viewModel.state == .recording ? AppColors.recording : AppColors.voice).opacity(0.35),
+                                radius: 9, y: 3)
+                    Image(systemName: mainIcon)
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.state == .transcribing || !viewModel.isModelLoaded)
+            .opacity(viewModel.state == .transcribing || !viewModel.isModelLoaded ? 0.5 : 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                switch viewModel.state {
+                case .recording:
+                    if let start = recordingStart {
+                        TimelineView(.animation(minimumInterval: 1)) { context in
+                            Text(elapsedString(from: start, to: context.date))
+                                .font(.system(size: 20, weight: .bold, design: .monospaced))
+                                .foregroundColor(AppColors.recording)
                         }
+                    } else {
+                        Text("Gravando...")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(AppColors.recording)
                     }
+                    Text("clique para parar e transcrever")
+                        .font(.caption).foregroundColor(.secondary)
+                case .transcribing:
+                    Text(viewModel.isTranslating ? "Traduzindo..." : "Transcrevendo...")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.orange)
+                    Text("whisper.cpp local")
+                        .font(.caption).foregroundColor(.secondary)
+                case .correcting:
+                    Text("Colado ✓")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.green)
+                    Text("copiado para a área de transferência")
+                        .font(.caption).foregroundColor(.secondary)
+                case .idle:
+                    Text("Iniciar ditado")
+                        .font(.system(size: 14, weight: .bold))
+                    Text("\(selectedKey.displayName) \(selectedKey.displayName) de qualquer app · ESC cancela")
+                        .font(.caption).foregroundColor(.secondary)
                 }
             }
+            Spacer()
+        }
+    }
 
-            // Wake word toggle
-            Toggle(isOn: Binding(
-                get: { viewModel.isWakeWordEnabled },
-                set: { viewModel.setWakeWord(enabled: $0) }
-            )) {
-                HStack(spacing: 4) {
-                    Image(systemName: "waveform")
-                    Text("\"Sileide\" wake word")
+    private var mainIcon: String {
+        switch viewModel.state {
+        case .idle: return "mic.fill"
+        case .recording: return "stop.fill"
+        case .transcribing: return "ellipsis"
+        case .correcting: return "checkmark"
+        }
+    }
+
+    // MARK: History
+
+    private var historySection: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("RECENTES")
+                .font(.system(size: 10, weight: .bold))
+                .kerning(0.7)
+                .foregroundColor(Color(NSColor.tertiaryLabelColor))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            ForEach(viewModel.history, id: \.self) { item in
+                HistoryRow(text: item) {
+                    viewModel.reuseHistoryItem(item)
                 }
-                .font(.caption)
             }
-            .toggleStyle(.switch)
-            .controlSize(.small)
+        }
+    }
 
-            // Transcription language
-            HStack {
-                Text("Idioma:")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .frame(width: 90, alignment: .leading)
+    // MARK: Settings
+
+    private var settingsSection: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("AJUSTES")
+                .font(.system(size: 10, weight: .bold))
+                .kerning(0.7)
+                .foregroundColor(Color(NSColor.tertiaryLabelColor))
+
+            settingRow("Idioma") {
                 Picker("", selection: Binding(
                     get: { viewModel.transcriptionLanguage },
                     set: { viewModel.setTranscriptionLanguage($0) }
@@ -96,16 +178,11 @@ struct ContentView: View {
                         Text(lang.label).tag(lang)
                     }
                 }
-                .pickerStyle(.menu)
+                .pickerStyle(.segmented)
                 .controlSize(.small)
             }
 
-            // Translation mode
-            HStack {
-                Text("Tradução:")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .frame(width: 90, alignment: .leading)
+            settingRow("Tradução") {
                 Picker("", selection: Binding(
                     get: { viewModel.translationMode },
                     set: { viewModel.setTranslationMode($0) }
@@ -118,72 +195,33 @@ struct ContentView: View {
                 .controlSize(.small)
             }
 
-            // Model selectors
-            VStack(spacing: 4) {
-                HStack {
-                    Text("Ditado ao vivo:")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .frame(width: 90, alignment: .leading)
-                    Picker("", selection: Binding(
-                        get: { viewModel.liveModel },
-                        set: { viewModel.setLiveModel($0) }
-                    )) {
-                        ForEach(WhisperModel.allCases) { m in
-                            Text(m.displayName).tag(m)
-                        }
+            settingRow("Ditado ao vivo") {
+                Picker("", selection: Binding(
+                    get: { viewModel.liveModel },
+                    set: { viewModel.setLiveModel($0) }
+                )) {
+                    ForEach(WhisperModel.allCases) { m in
+                        Text(m.displayName).tag(m)
                     }
-                    .pickerStyle(.segmented)
-                    .controlSize(.small)
                 }
-                HStack {
-                    Text("Documentos:")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .frame(width: 90, alignment: .leading)
-                    Picker("", selection: Binding(
-                        get: { viewModel.batchModel },
-                        set: { viewModel.setBatchModel($0) }
-                    )) {
-                        ForEach(WhisperModel.allCases) { m in
-                            Text(m.displayName).tag(m)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .controlSize(.small)
-                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
             }
 
-            if let status = viewModel.batchStatus {
-                HStack(spacing: 6) {
-                    ProgressView().scaleEffect(0.5)
-                    Text(status)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Button("Cancelar") {
-                        BatchTranscriber.shared.cancel()
-                        viewModel.batchStatus = nil
+            settingRow("Documentos") {
+                Picker("", selection: Binding(
+                    get: { viewModel.batchModel },
+                    set: { viewModel.setBatchModel($0) }
+                )) {
+                    ForEach(WhisperModel.allCases) { m in
+                        Text(m.displayName).tag(m)
                     }
-                    .font(.caption2)
-                    .buttonStyle(.borderless)
-                    .foregroundColor(.red)
                 }
-                .font(.caption2)
-                .foregroundColor(.orange)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color.orange.opacity(0.1))
-                .cornerRadius(6)
+                .pickerStyle(.segmented)
+                .controlSize(.small)
             }
 
-            // Double-tap key selector
-            HStack {
-                Text("Double-tap:")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .frame(width: 90, alignment: .leading)
+            settingRow("Tecla dupla") {
                 Picker("", selection: $selectedKey) {
                     ForEach(DoubleTapKey.allCases) { key in
                         Text(key.displayName).tag(key)
@@ -196,66 +234,110 @@ struct ContentView: View {
                 }
             }
 
-            HStack {
-                Text("\(selectedKey.displayName) \(selectedKey.displayName) to record  •  ESC to cancel")
-                Spacer()
-                Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
+            settingRow("Wake word") {
+                Toggle(isOn: Binding(
+                    get: { viewModel.isWakeWordEnabled },
+                    set: { viewModel.setWakeWord(enabled: $0) }
+                )) {
+                    Text("\u{201C}Sileide\u{201D}").font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+        }
+        .padding(10)
+        .background(Color(NSColor.textBackgroundColor))
+        .cornerRadius(9)
+    }
+
+    private func settingRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(width: 88, alignment: .leading)
+            content()
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func batchBanner(_ status: String) -> some View {
+        HStack(spacing: 6) {
+            ProgressView().scaleEffect(0.5)
+            Text(status)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Button("Cancelar") {
+                BatchTranscriber.shared.cancel()
+                viewModel.batchStatus = nil
             }
             .font(.caption2)
-            .foregroundColor(.secondary)
+            .buttonStyle(.borderless)
+            .foregroundColor(.red)
         }
-        .padding()
-        .frame(width: 360, height: viewModel.history.isEmpty ? 390 : 390 + CGFloat(viewModel.history.count) * 46)
+        .font(.caption2)
+        .foregroundColor(.orange)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.orange.opacity(0.1))
+        .cornerRadius(6)
+    }
+
+    private var footerHints: some View {
+        HStack {
+            Text("\(selectedKey.displayName) \(selectedKey.displayName) grava  ·  ESC cancela")
+            Spacer()
+            Text("local · offline")
+        }
+        .font(.caption2)
+        .foregroundColor(Color(NSColor.tertiaryLabelColor))
+    }
+
+    // MARK: State helpers
+
+    private func elapsedString(from start: Date, to now: Date) -> String {
+        let s = max(0, Int(now.timeIntervalSince(start)))
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 
     private var statusText: String {
-        if viewModel.isModelLoading { return "Loading model..." }
-        if !viewModel.isModelLoaded { return "Model unavailable" }
-        if viewModel.isTranslating { return "Translating..." }
+        if viewModel.isModelLoading { return "Carregando modelo..." }
+        if !viewModel.isModelLoaded { return "Modelo indisponível" }
+        if viewModel.isTranslating { return "Traduzindo..." }
         switch viewModel.state {
         case .idle:
-            let base = viewModel.isFinalModelReady ? "Ready" : "Ready (loading Turbo...)"
+            let base = viewModel.isFinalModelReady ? "Pronto" : "Pronto (carregando Turbo...)"
             if viewModel.translationMode != .off {
                 return base + " · \(viewModel.translationMode.displayName)"
             }
             return base
-        case .recording: return "Recording..."
-        case .transcribing: return "Transcribing..."
-        case .correcting: return "Correcting..."
+        case .recording: return "Gravando..."
+        case .transcribing: return "Transcrevendo..."
+        case .correcting: return "Colado no app em foco ✓"
         }
     }
 
-    private var statusColor: Color {
-        if viewModel.isModelLoading { return .orange }
+    private var statusDotColor: Color {
         if !viewModel.isModelLoaded { return .red }
         switch viewModel.state {
-        case .idle: return .secondary
-        case .recording: return .red
+        case .idle: return .green
+        case .recording: return AppColors.recording
         case .transcribing: return .orange
         case .correcting: return .green
         }
     }
 
-    private var buttonIcon: String {
+    private var statusTextColor: Color {
+        if viewModel.isModelLoading { return .orange }
+        if !viewModel.isModelLoaded { return .red }
         switch viewModel.state {
-        case .idle: return "mic.fill"
-        case .recording: return "stop.fill"
-        case .transcribing: return "ellipsis"
-        case .correcting: return "checkmark"
+        case .idle: return .primary
+        case .recording: return AppColors.recording
+        case .transcribing: return .orange
+        case .correcting: return .green
         }
-    }
-
-    private var buttonLabel: String {
-        switch viewModel.state {
-        case .idle: return "Start Dictation"
-        case .recording: return "Stop"
-        case .transcribing: return "Transcribing..."
-        case .correcting: return "Correcting..."
-        }
-    }
-
-    private var buttonColor: Color {
-        viewModel.state == .recording ? .red : .accentColor
     }
 }
 
@@ -268,21 +350,27 @@ private struct HistoryRow: View {
         HStack(spacing: 8) {
             Text(text)
                 .font(.caption)
-                .foregroundColor(.primary)
-                .lineLimit(2)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: onReuse) {
                 Image(systemName: "arrow.up.doc.on.clipboard")
                     .font(.caption)
+                    .foregroundColor(AppColors.voice)
             }
             .buttonStyle(.borderless)
-            .help("Copy and paste")
+            .help("Copiar e colar")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(hovered ? Color(NSColor.selectedContentBackgroundColor).opacity(0.15) : Color(NSColor.textBackgroundColor))
-        .cornerRadius(6)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(Color(NSColor.textBackgroundColor))
+        .cornerRadius(7)
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(hovered ? AppColors.voice.opacity(0.6) : Color.clear, lineWidth: 1)
+        )
         .onHover { hovered = $0 }
     }
 }

@@ -28,7 +28,8 @@ struct VoiceMemosView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 540, minHeight: 420)
+        .frame(minWidth: 560, minHeight: 440)
+        .tint(AppColors.voice)
         .onAppear { if store.memos.isEmpty { store.reload() } }
     }
 
@@ -43,6 +44,7 @@ struct VoiceMemosView: View {
             Button("Abrir Acesso Total ao Disco") {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
             }
+            .buttonStyle(.borderedProminent)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -59,43 +61,49 @@ struct VoiceMemosView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "waveform")
-            Text("Voice Memos").font(.headline)
+        HStack(spacing: 10) {
+            Label("Voice Memos", systemImage: "headphones")
+                .font(.headline)
             if store.isLoading { ProgressView().scaleEffect(0.5) }
             Spacer()
-            TextField("Buscar…", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 180)
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass").foregroundColor(.secondary).font(.caption)
+                TextField("Buscar", text: $search)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                if !search.isEmpty {
+                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .frame(width: 210)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.06)))
             Button {
                 store.reload()
             } label: { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.borderless)
                 .help("Recarregar lista")
                 .disabled(store.isLoading)
         }
-        .padding(10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     private var list: some View {
-        List(selection: $selection) {
-            ForEach(filtered) { memo in
-                HStack(spacing: 10) {
-                    Image(systemName: memo.isTranscribed ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(memo.isTranscribed ? .green : .secondary)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(memo.title).lineLimit(1)
-                        Text(memo.dateText).font(.caption2).foregroundColor(.secondary)
+        ScrollView {
+            LazyVStack(spacing: 3) {
+                ForEach(filtered) { memo in
+                    MemoRow(memo: memo, selected: selection.contains(memo.id)) {
+                        if selection.contains(memo.id) { selection.remove(memo.id) }
+                        else { selection.insert(memo.id) }
                     }
-                    Spacer()
-                    Text(memo.durationText)
-                        .font(.caption.monospacedDigit())
-                        .foregroundColor(.secondary)
                 }
-                .tag(memo.id)
-                .contentShape(Rectangle())
             }
+            .padding(8)
         }
-        .listStyle(.inset(alternatesRowBackgrounds: true))
     }
 
     private var footer: some View {
@@ -107,13 +115,14 @@ struct VoiceMemosView: View {
                     Spacer()
                 }
             }
-            HStack {
+            HStack(spacing: 12) {
                 Button(selection.count == filtered.count && !filtered.isEmpty ? "Limpar seleção" : "Selecionar todos") {
                     if selection.count == filtered.count { selection.removeAll() }
                     else { selection = Set(filtered.map { $0.id }) }
                 }
-                .controlSize(.small)
-                Text("\(selection.count) selecionado(s)")
+                .buttonStyle(.borderless)
+                .font(.caption)
+                Text("\(selection.count) selecionado\(selection.count == 1 ? "" : "s")")
                     .font(.caption).foregroundColor(.secondary)
                 Spacer()
                 Toggle("Identificar falantes", isOn: $diarize)
@@ -123,12 +132,63 @@ struct VoiceMemosView: View {
                 Button {
                     onTranscribe(selection, diarize)
                 } label: {
-                    Label("Transcrever selecionados", systemImage: "doc.text.magnifyingglass")
+                    Label("Transcrever selecionados", systemImage: "waveform.and.mic")
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(AppColors.voice)
                 .keyboardShortcut(.defaultAction)
                 .disabled(selection.isEmpty || store.isTranscribing)
             }
         }
-        .padding(10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+}
+
+private struct MemoRow: View {
+    let memo: VoiceMemo
+    let selected: Bool
+    let onToggle: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .strokeBorder(selected ? AppColors.voice : Color.secondary.opacity(0.55), lineWidth: 1.6)
+                        .background(Circle().fill(selected ? AppColors.voice : Color.clear))
+                        .frame(width: 17, height: 17)
+                    if selected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(memo.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    Text(memo.dateText).font(.caption2).foregroundColor(.secondary)
+                }
+                Spacer()
+                if memo.isTranscribed {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .help("Já transcrito")
+                }
+                Text(memo.durationText)
+                    .font(.caption.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(selected ? AppColors.voice.opacity(0.12)
+                               : (hovered ? Color.primary.opacity(0.05) : Color.clear))
+        )
+        .onHover { hovered = $0 }
     }
 }

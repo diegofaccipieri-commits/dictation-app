@@ -50,6 +50,7 @@
 		E93BD9C84DD34C84F71DC4B3 /* MeetingTrimmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB4BD17860421DAEC6299FC /* MeetingTrimmer.swift */; };
 		EA1148445BB76A10E47976F2 /* MeetingWaveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB102E42FF23769EC4757F28 /* MeetingWaveform.swift */; };
 		EB9FC3ABA69D6AF898A4CBBD /* MeetingPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = A027ADED4AC4EE5711AEFC35 /* MeetingPaths.swift */; };
+		F6AF3EFC21718AA70A266B95 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8753F3A52A7EB8E37D1BE41B /* Theme.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -69,6 +70,7 @@
 		55D265BD9F9939A545C5B4E5 /* SystemAudioTapCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioTapCapture.swift; sourceTree = "<group>"; };
 		6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		82E49A420A4D311440C56A58 /* BatchTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTranscriber.swift; sourceTree = "<group>"; };
+		8753F3A52A7EB8E37D1BE41B /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		888388B0B045E88481C1043B /* DictationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationApp.swift; sourceTree = "<group>"; };
 		8C9115276316585237DB37AB /* WhisperModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperModel.swift; sourceTree = "<group>"; };
 		9397E24E955BCE46AB527AB2 /* MeetingRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecorder.swift; sourceTree = "<group>"; };
@@ -138,6 +140,7 @@
 				6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */,
 				AC198E3C20403986C286C56F /* Info.plist */,
 				47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */,
+				8753F3A52A7EB8E37D1BE41B /* Theme.swift */,
 				C8CBD8D8B857BB14058EFB27 /* TranscriptionLanguage.swift */,
 				010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */,
 				D7A7A1167452596827FECC61 /* TranslationMode.swift */,
@@ -289,6 +292,7 @@
 				E26CEF7EE43878A9BF34BED9 /* RecordingState.swift in Sources */,
 				11D40C4F24265AE545701FE5 /* ReunioesView.swift in Sources */,
 				77B07A1D97940600830653F2 /* SystemAudioTapCapture.swift in Sources */,
+				F6AF3EFC21718AA70A266B95 /* Theme.swift in Sources */,
 				09DABF8BAD1B6401585EF977 /* TranscriptionLanguage.swift in Sources */,
 				D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */,
 				8EC640C5201F107C21829C6F /* TranslationMode.swift in Sources */,

@@ -4,7 +4,8 @@ import SwiftUI
 private enum HUDStyle {
     static let darkBackground = Color(red: 18 / 255, green: 20 / 255, blue: 24 / 255)
     static let darkStroke = Color.white.opacity(0.14)
-    static let royalBlue = Color(red: 65 / 255, green: 105 / 255, blue: 225 / 255)
+    // Brand orange over the graphite HUD (translation badge).
+    static let badgeOrange = Color(red: 1, green: 162 / 255, blue: 87 / 255)
     static let recordRed = Color(red: 1, green: 45 / 255, blue: 58 / 255)
     static let connectorWidth: CGFloat = 14
     static let connectorHeight: CGFloat = 5
@@ -181,7 +182,7 @@ private struct TranslationBadgeView: View {
     var body: some View {
         Text(text)
             .font(.system(size: 10, weight: .bold, design: .monospaced))
-            .foregroundColor(HUDStyle.royalBlue)
+            .foregroundColor(HUDStyle.badgeOrange)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .padding(.horizontal, 7)
@@ -190,7 +191,7 @@ private struct TranslationBadgeView: View {
             .clipShape(Capsule())
             .overlay(
                 Capsule()
-                    .stroke(HUDStyle.royalBlue, lineWidth: 1)
+                    .stroke(HUDStyle.badgeOrange, lineWidth: 1)
             )
     }
 }
