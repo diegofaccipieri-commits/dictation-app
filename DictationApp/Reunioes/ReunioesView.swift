@@ -12,7 +12,7 @@ struct ReunioesView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if !recorder.permissions.allGranted { permissionsSection; Divider() }
+            if !recorder.permissions.allGranted { permissionsBanner }
             meetingsSection
         }
         .frame(minWidth: 580, minHeight: 480)
@@ -25,74 +25,78 @@ struct ReunioesView: View {
         }
     }
 
+    // MARK: Header
+
     private var header: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             HStack(spacing: 12) {
-                Image(systemName: "person.2.wave.2.fill").font(.system(size: 26)).foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Reuniões").font(.title2.bold())
-                    Text("Grava microfone + áudio do sistema e transcreve com Whisper")
+                    Text("Sua voz e o áudio do Mac, gravados e transcritos no aparelho")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-            }
-            HStack(spacing: 16) {
+                if recorder.isRecording { recordingStatus }
                 Button {
                     recorder.toggle()
                 } label: {
-                    HStack {
-                        Image(systemName: recorder.isRecording ? "stop.fill" : "record.circle")
-                        Text(recorder.isRecording ? "Parar" : "Gravar reunião")
-                    }
-                    .frame(minWidth: 130).padding(.vertical, 6)
+                    Label(recorder.isRecording ? "Parar" : "Gravar reunião",
+                          systemImage: recorder.isRecording ? "stop.fill" : "record.circle")
+                        .frame(minWidth: 118)
+                        .padding(.vertical, 5)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(recorder.isRecording ? .red : .accentColor)
                 .disabled(!recorder.permissions.allGranted && !recorder.isRecording)
-
-                if recorder.isRecording {
-                    Label(Self.elapsed(recorder.elapsed), systemImage: "clock")
-                        .font(.system(.title3, design: .monospaced)).foregroundStyle(.red)
-                    liveRecordingMeters
-                }
-                Spacer()
             }
             if let err = recorder.lastError {
-                Text(err).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading)
+                Label(err, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding()
+        .padding(16)
     }
 
-    private var liveRecordingMeters: some View {
+    private var recordingStatus: some View {
         HStack(spacing: 10) {
+            Image(systemName: "record.circle.fill")
+                .foregroundStyle(.red)
+                .symbolEffect(.pulse, options: .repeating)
+            Text(Self.elapsed(recorder.elapsed))
+                .font(.system(.body, design: .monospaced).weight(.medium))
+                .foregroundStyle(.red)
             MeetingLiveTrackMeter(label: "Você", systemImage: "mic.fill", color: .blue,
-                                   levels: recorder.microphoneLevels)
+                                  levels: recorder.microphoneLevels)
             MeetingLiveTrackMeter(label: "Mac", systemImage: "speaker.wave.2.fill", color: .green,
-                                   levels: recorder.systemLevels)
+                                  levels: recorder.systemLevels)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(Color.red.opacity(0.08)))
     }
 
-    private var permissionsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Permissões").font(.headline)
-            permissionRow("Microfone", granted: recorder.permissions.microphone) { recorder.requestMicrophone() }
-            Text("O macOS pedirá a permissão de Áudio do Sistema na primeira gravação — basta aceitar.")
-                .font(.caption2).foregroundStyle(.secondary)
-        }
-        .padding().frame(maxWidth: .infinity, alignment: .leading)
-    }
+    // MARK: Permissions
 
-    private func permissionRow(_ title: String, granted: Bool, action: @escaping () -> Void) -> some View {
-        HStack {
-            Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(granted ? .green : .orange)
-            Text(title)
+    private var permissionsBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Permissão de microfone necessária").font(.subheadline.weight(.medium))
+                Text("O macOS pedirá a permissão de Áudio do Sistema na primeira gravação; basta aceitar.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Spacer()
-            if granted { Text("Concedida").font(.caption).foregroundStyle(.secondary) }
-            else { Button("Conceder", action: action).buttonStyle(.bordered) }
+            Button("Conceder microfone") { recorder.requestMicrophone() }
+                .buttonStyle(.bordered).controlSize(.small)
         }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.09)))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
     }
+
+    // MARK: Meetings list
 
     private var searchQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -113,21 +117,29 @@ struct ReunioesView: View {
     private var meetingsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
+                HStack(spacing: 8) {
                     Text("Gravações").font(.headline)
+                    if !recorder.meetings.isEmpty {
+                        Text("\(visibleMeetings.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Color.primary.opacity(0.06)))
+                    }
                     Spacer()
                     Button { NSWorkspace.shared.open(MeetingPaths.audioDir) } label: {
                         Image(systemName: MeetingPaths.isUsingDropbox ? "cloud" : "externaldrive")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.accessoryBar)
                     .help("Abrir pasta das reuniões")
                     Button { recorder.loadMeetings() } label: { Image(systemName: "arrow.clockwise") }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.accessoryBar)
+                        .help("Recarregar lista")
                 }
 
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Pesquisar nas transcrições", text: $searchText)
+                    TextField("Pesquisar por título ou conteúdo das transcrições", text: $searchText)
                         .textFieldStyle(.plain)
                     if !searchText.isEmpty {
                         Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill") }
@@ -139,16 +151,20 @@ struct ReunioesView: View {
                 .padding(.vertical, 7)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
             }
-            .padding(.horizontal).padding(.top, 8)
+            .padding(.horizontal, 16).padding(.top, 10)
 
             if recorder.meetings.isEmpty {
-                Text("Nenhuma reunião ainda. Conceda as permissões e clique em Gravar reunião.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                ContentUnavailableView {
+                    Label("Nenhuma reunião ainda", systemImage: "person.2.wave.2")
+                } description: {
+                    Text("Clique em Gravar reunião para capturar sua voz e o áudio do Mac.")
+                }
             } else if visibleMeetings.isEmpty {
-                Text("Nenhuma transcrição encontrada.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                ContentUnavailableView {
+                    Label("Nada encontrado", systemImage: "magnifyingglass")
+                } description: {
+                    Text("Nenhuma reunião ou transcrição contém \"\(searchQuery)\".")
+                }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
@@ -164,7 +180,9 @@ struct ReunioesView: View {
                             }
                         }
                     }
-                    .padding()
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+                    .padding(.top, 4)
                 }
             }
         }
@@ -200,98 +218,36 @@ struct MeetingCard: View {
     @State private var trimDuration: Double = 0
     @State private var isExportingTrim = false
     @State private var trimError: String?
+    @State private var showingRemoveAlert = false
+    /// Bumped after an in-place edit so lanes reload peaks for the same URLs.
+    @State private var waveformGeneration = 0
 
     private var isSearching: Bool { !searchText.isEmpty }
     private var effectiveExpanded: Bool { isExpanded || isSearching }
     private var pairURLs: [URL] { [item.micURL, item.systemURL].compactMap { $0 } }
 
+    private var dateText: String {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f.string(from: item.date)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
-                } label: {
-                    Image(systemName: effectiveExpanded ? "chevron.down" : "chevron.right")
-                        .frame(width: 18)
-                }
-                .buttonStyle(.plain)
-                .help(effectiveExpanded ? "Colapsar" : "Expandir")
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.displayTitle).font(.headline)
-                    Text(item.id).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let mic = item.micURL, let system = item.systemURL {
-                    Button {
-                        player.togglePair(id: item.id, urls: [mic, system])
-                    } label: {
-                        Label(player.isPlayingPair(id: item.id) ? "Pausar tudo" : "Ouvir tudo",
-                              systemImage: player.isPlayingPair(id: item.id) ? "pause.circle.fill" : "play.circle.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                if isSearching {
-                    let count = transcriber.matchCount(id: item.id, query: searchText)
-                    Text("\(count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.yellow.opacity(0.22)))
-                }
-                if !pairURLs.isEmpty {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            isTrimming.toggle()
-                            trimSelection = nil
-                            trimError = nil
-                            if isTrimming { isExpanded = true }
-                        }
-                    } label: {
-                        Image(systemName: "scissors")
-                            .foregroundStyle(isTrimming ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                    }
-                    .buttonStyle(.borderless)
-                    .help(isTrimming ? "Sair do modo de recorte" : "Recortar um trecho desta reunião")
-                }
-
-                Button {
-                    if let u = item.micURL ?? item.systemURL {
-                        NSWorkspace.shared.activateFileViewerSelecting([u])
-                    }
-                } label: { Image(systemName: "folder") }
-                .buttonStyle(.borderless).help("Mostrar no Finder")
-
-                Button {
-                    renameText = item.title ?? item.displayTitle
-                    showingRenameAlert = true
-                } label: {
-                    Image(systemName: "pencil")
-                }
-                .buttonStyle(.borderless)
-                .help("Renomear reunião")
-
-                Button {
-                    showingDeleteAlert = true
-                } label: {
-                    Image(systemName: "trash")
-                        .foregroundStyle(.red)
-                }
-                .buttonStyle(.borderless)
-                .help("Apagar reunião")
-            }
+            headerRow
 
             if effectiveExpanded {
                 MeetingWaveformLane(label: "Você (microfone)", systemImage: "mic.fill",
                                     url: item.micURL, color: .blue, player: player,
-                                    isTrimming: isTrimming, trimSelection: $trimSelection) { progress in
+                                    isTrimming: isTrimming, reloadToken: waveformGeneration,
+                                    trimSelection: $trimSelection) { progress in
                     player.playPair(id: item.id, urls: pairURLs, from: progress)
                 }
                 MeetingWaveformLane(label: "Outros (áudio do sistema)", systemImage: "speaker.wave.2.fill",
                                     url: item.systemURL, color: .green, player: player,
-                                    isTrimming: isTrimming, trimSelection: $trimSelection) { progress in
+                                    isTrimming: isTrimming, reloadToken: waveformGeneration,
+                                    trimSelection: $trimSelection) { progress in
                     player.playPair(id: item.id, urls: pairURLs, from: progress)
                 }
 
@@ -304,8 +260,12 @@ struct MeetingCard: View {
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
-        .task(id: item.id) {
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.primary.opacity(0.04))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.06), lineWidth: 1))
+        )
+        .task(id: "\(waveformGeneration)|\(item.id)") {
             let urls = pairURLs
             guard !urls.isEmpty else { return }
             trimDuration = await Task.detached(priority: .utility) {
@@ -325,7 +285,218 @@ struct MeetingCard: View {
         } message: {
             Text("Isso remove os áudios e a transcrição salva desta reunião.")
         }
+        .alert("Remover trecho?", isPresented: $showingRemoveAlert) {
+            Button("Cancelar", role: .cancel) {}
+            Button("Remover", role: .destructive) { removeTrim() }
+        } message: {
+            if let sel = trimSelection, let range = MeetingTrimLogic.timeRange(sel, duration: trimDuration) {
+                Text("O trecho \(ReunioesView.timestamp(range.start)) - \(ReunioesView.timestamp(range.end)) será apagado permanentemente dos áudios desta reunião, e a transcrição atual será descartada.")
+            } else {
+                Text("O trecho selecionado será apagado permanentemente dos áudios desta reunião.")
+            }
+        }
     }
+
+    private var headerRow: some View {
+        HStack(spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
+            } label: {
+                Image(systemName: effectiveExpanded ? "chevron.down" : "chevron.right")
+                    .frame(width: 18)
+            }
+            .buttonStyle(.plain)
+            .help(effectiveExpanded ? "Colapsar" : "Expandir")
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.displayTitle).font(.headline).lineLimit(1)
+                HStack(spacing: 8) {
+                    if item.title != nil {
+                        Text(dateText).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if trimDuration > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "waveform")
+                            Text(ReunioesView.timestamp(trimDuration))
+                        }
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Spacer()
+
+            if isSearching {
+                let count = transcriber.matchCount(id: item.id, query: searchText)
+                Text("\(count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.yellow.opacity(0.22)))
+            }
+
+            if let mic = item.micURL, let system = item.systemURL {
+                Button {
+                    player.togglePair(id: item.id, urls: [mic, system])
+                } label: {
+                    Label(player.isPlayingPair(id: item.id) ? "Pausar" : "Ouvir tudo",
+                          systemImage: player.isPlayingPair(id: item.id) ? "pause.circle.fill" : "play.circle.fill")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            if !pairURLs.isEmpty {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isTrimming.toggle()
+                        trimSelection = nil
+                        trimError = nil
+                        if isTrimming { isExpanded = true }
+                    }
+                } label: {
+                    Image(systemName: "scissors")
+                        .foregroundStyle(isTrimming ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                }
+                .buttonStyle(.accessoryBar)
+                .help(isTrimming ? "Sair do modo de recorte" : "Recortar um trecho desta reunião")
+            }
+
+            Button {
+                if let u = item.micURL ?? item.systemURL {
+                    NSWorkspace.shared.activateFileViewerSelecting([u])
+                }
+            } label: { Image(systemName: "folder") }
+            .buttonStyle(.accessoryBar).help("Mostrar no Finder")
+
+            Button {
+                renameText = item.title ?? item.displayTitle
+                showingRenameAlert = true
+            } label: { Image(systemName: "pencil") }
+            .buttonStyle(.accessoryBar)
+            .help("Renomear reunião")
+
+            Button {
+                showingDeleteAlert = true
+            } label: {
+                Image(systemName: "trash").foregroundStyle(.red)
+            }
+            .buttonStyle(.accessoryBar)
+            .help("Apagar reunião")
+        }
+    }
+
+    // MARK: Trim (recorte)
+
+    @ViewBuilder
+    private var trimControls: some View {
+        let range = trimSelection.flatMap { MeetingTrimLogic.timeRange($0, duration: trimDuration) }
+
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "scissors").foregroundStyle(.tint)
+                if isExportingTrim {
+                    ProgressView().controlSize(.small)
+                    Text("Processando áudio...").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                } else if let range {
+                    Text("\(ReunioesView.timestamp(range.start)) - \(ReunioesView.timestamp(range.end))")
+                        .font(.caption.monospacedDigit())
+                    Text("(\(ReunioesView.timestamp(range.end - range.start)))")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        if let sel = trimSelection {
+                            player.playPair(id: item.id, urls: pairURLs,
+                                            from: sel.startFraction, until: sel.endFraction)
+                        }
+                    } label: { Label("Ouvir", systemImage: "play.circle") }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .help("Reproduzir apenas o trecho selecionado")
+
+                    Button {
+                        separateTrim()
+                    } label: { Label("Separar", systemImage: "plus.square.on.square") }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .help("Salvar o trecho selecionado como uma nova gravação")
+
+                    Button {
+                        showingRemoveAlert = true
+                    } label: { Label("Remover", systemImage: "trash") }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .tint(.red)
+                    .help("Apagar o trecho selecionado desta gravação")
+
+                    Button("Cancelar") { exitTrimMode() }
+                        .buttonStyle(.borderless).controlSize(.small)
+                } else {
+                    Text("Arraste sobre a waveform para selecionar um trecho.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Cancelar") { exitTrimMode() }
+                        .buttonStyle(.borderless).controlSize(.small)
+                }
+            }
+            if let trimError {
+                Label(trimError, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.07)))
+    }
+
+    private func exitTrimMode() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isTrimming = false
+            trimSelection = nil
+            trimError = nil
+        }
+    }
+
+    @MainActor
+    private func separateTrim() {
+        guard let selection = trimSelection, !isExportingTrim else { return }
+        isExportingTrim = true
+        trimError = nil
+        player.stop()
+        Task {
+            do {
+                let newId = try await MeetingTrimmer.export(item: item, selection: selection)
+                NSLog("DictationApp: [TRIM] trecho separado: %@", newId)
+                isExportingTrim = false
+                exitTrimMode()
+                onTrimSaved()
+            } catch {
+                isExportingTrim = false
+                trimError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func removeTrim() {
+        guard let selection = trimSelection, !isExportingTrim else { return }
+        isExportingTrim = true
+        trimError = nil
+        player.stop()
+        Task {
+            do {
+                try await MeetingTrimmer.removeSection(item: item, selection: selection)
+                transcriber.clear(id: item.id)
+                isExportingTrim = false
+                exitTrimMode()
+                waveformGeneration += 1
+                onTrimSaved()
+            } catch {
+                isExportingTrim = false
+                trimError = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: Transcript
 
     @ViewBuilder
     private var transcriptSection: some View {
@@ -346,7 +517,7 @@ struct MeetingCard: View {
                 } else if !segments.isEmpty {
                     Button { transcriber.transcribe(item, language: language) } label: {
                         Label("Refazer", systemImage: "arrow.clockwise")
-                    }.buttonStyle(.borderless).font(.caption)
+                    }.buttonStyle(.accessoryBar).font(.caption)
                 }
             }
 
@@ -357,81 +528,6 @@ struct MeetingCard: View {
                 transcribeControls
             } else if !running {
                 transcribeControls
-            }
-        }
-    }
-
-    // MARK: Trim (recorte)
-
-    @ViewBuilder
-    private var trimControls: some View {
-        let range = trimSelection.flatMap { MeetingTrimLogic.timeRange($0, duration: trimDuration) }
-
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Image(systemName: "scissors").foregroundStyle(.tint)
-                if isExportingTrim {
-                    ProgressView().controlSize(.small)
-                    Text("Exportando recorte...").font(.caption).foregroundStyle(.secondary)
-                } else if let range {
-                    Text("\(ReunioesView.timestamp(range.start)) - \(ReunioesView.timestamp(range.end))")
-                        .font(.caption.monospacedDigit())
-                    Text("(\(ReunioesView.timestamp(range.end - range.start)))")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    Button {
-                        if let sel = trimSelection {
-                            player.playPair(id: item.id, urls: pairURLs,
-                                            from: sel.startFraction, until: sel.endFraction)
-                        }
-                    } label: { Label("Ouvir seleção", systemImage: "play.circle") }
-                    .buttonStyle(.bordered).controlSize(.small)
-                    Button {
-                        saveTrim()
-                    } label: { Label("Salvar recorte", systemImage: "square.and.arrow.down") }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
-                } else {
-                    Text("Arraste sobre a waveform para selecionar o trecho a recortar.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Cancelar") {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isTrimming = false
-                        trimSelection = nil
-                        trimError = nil
-                    }
-                }
-                .buttonStyle(.borderless).controlSize(.small)
-                .disabled(isExportingTrim)
-            }
-            if let trimError {
-                Label(trimError, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
-            }
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.07)))
-    }
-
-    @MainActor
-    private func saveTrim() {
-        guard let selection = trimSelection, !isExportingTrim else { return }
-        isExportingTrim = true
-        trimError = nil
-        player.stop()
-        Task {
-            do {
-                let newId = try await MeetingTrimmer.export(item: item, selection: selection)
-                NSLog("DictationApp: [TRIM] recorte salvo: %@", newId)
-                isExportingTrim = false
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isTrimming = false
-                    trimSelection = nil
-                }
-                onTrimSaved()
-            } catch {
-                isExportingTrim = false
-                trimError = error.localizedDescription
             }
         }
     }
@@ -463,6 +559,7 @@ struct MeetingWaveformLane: View {
     let color: Color
     @ObservedObject var player: MeetingPlayer
     var isTrimming = false
+    var reloadToken = 0
     @Binding var trimSelection: MeetingTrimLogic.Selection?
     let onSeek: (Double) -> Void
     @State private var peaks: [Float] = []
@@ -492,8 +589,13 @@ struct MeetingWaveformLane: View {
             .buttonStyle(.plain).disabled(url == nil)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack {
-                    Label(label, systemImage: systemImage).font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Image(systemName: systemImage)
+                        .font(.caption2)
+                        .foregroundStyle(color)
+                        .frame(width: 18, height: 18)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.14)))
+                    Text(label).font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     if let timeText {
                         Text(timeText)
@@ -549,7 +651,7 @@ struct MeetingWaveformLane: View {
                       : "Clique na waveform para ouvir as duas faixas a partir deste ponto")
             }
         }
-        .task(id: url) {
+        .task(id: "\(reloadToken)|\(url?.path ?? "")") {
             guard let url else { return }
             loading = true
             let computed = await Task.detached(priority: .utility) {

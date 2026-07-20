@@ -44,6 +44,17 @@ enum MeetingTrimLogic {
         "\(base) (recorte \(label(start))-\(label(end)))"
     }
 
+    /// Ranges (in seconds) to KEEP when `selection` is removed from a track of `duration`:
+    /// the piece before the cut and the piece after it, dropping slivers shorter than
+    /// `minimumSeconds`. nil when the removal would leave no audio behind.
+    static func keepRanges(removing selection: Selection, duration: Double) -> [(start: Double, end: Double)]? {
+        guard let cut = timeRange(selection, duration: duration) else { return nil }
+        var keep: [(start: Double, end: Double)] = []
+        if cut.start >= minimumSeconds { keep.append((0, cut.start)) }
+        if duration - cut.end >= minimumSeconds { keep.append((cut.end, duration)) }
+        return keep.isEmpty ? nil : keep
+    }
+
     /// "12:34" below one hour, "1:02:34" from one hour up.
     static func label(_ seconds: Double) -> String {
         let s = max(0, Int(seconds.rounded()))

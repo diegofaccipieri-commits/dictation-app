@@ -71,6 +71,38 @@ final class MeetingTrimLogicTests: XCTestCase {
         XCTAssertEqual(MeetingTrimLogic.label(-5), "00:00")
     }
 
+    // MARK: Removal (keep ranges)
+
+    func testKeepRangesAroundMiddleCut() {
+        let sel = MeetingTrimLogic.Selection(0.25, 0.75)
+        let keep = MeetingTrimLogic.keepRanges(removing: sel, duration: 1000)
+        XCTAssertEqual(keep?.count, 2)
+        XCTAssertEqual(keep?[0].start, 0)
+        XCTAssertEqual(keep?[0].end, 250)
+        XCTAssertEqual(keep?[1].start, 750)
+        XCTAssertEqual(keep?[1].end, 1000)
+    }
+
+    func testKeepRangesDropsLeadingSliver() {
+        // Cut starts at 0.1s: the 0.1s head is below the minimum and is dropped.
+        let sel = MeetingTrimLogic.Selection(0.001, 0.5)
+        let keep = MeetingTrimLogic.keepRanges(removing: sel, duration: 100)
+        XCTAssertEqual(keep?.count, 1)
+        XCTAssertEqual(keep?[0].start, 50)
+        XCTAssertEqual(keep?[0].end, 100)
+    }
+
+    func testKeepRangesNilWhenSelectionCoversEverything() {
+        let sel = MeetingTrimLogic.Selection(0, 1)
+        XCTAssertNil(MeetingTrimLogic.keepRanges(removing: sel, duration: 1000))
+    }
+
+    func testKeepRangesNilForTinySelection() {
+        // Selection below the minimum cut size is not a removal.
+        let sel = MeetingTrimLogic.Selection(0.5, 0.5001)
+        XCTAssertNil(MeetingTrimLogic.keepRanges(removing: sel, duration: 100))
+    }
+
     func testTrimmedTitle() {
         XCTAssertEqual(MeetingTrimLogic.trimmedTitle(base: "Reunião cliente", start: 754, end: 900),
                        "Reunião cliente (recorte 12:34-15:00)")
