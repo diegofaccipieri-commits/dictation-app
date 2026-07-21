@@ -42,6 +42,11 @@ class DictationViewModel: ObservableObject {
         Task { await self.loadModels(liveModel: liveModel, batchModel: batchModel) }
     }
 
+    /// Called on app termination: stop the whisper.cpp server so it doesn't outlive the app.
+    func shutdown() {
+        transcriptionManager.shutdownServer()
+    }
+
     func setWakeWord(enabled: Bool) {
         isWakeWordEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: "wakeWordEnabled")

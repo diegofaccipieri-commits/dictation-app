@@ -29,11 +29,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        viewModel.shutdown()
+    }
+
+    /// Menu bar icon as a template image so macOS tints it to match the bar
+    /// (white on a dark menu bar, black on a light one).
+    static func menuBarIcon(_ symbol: String) -> NSImage? {
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Dictation")
+        image?.isTemplate = true
+        return image
+    }
+
     func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "Dictation")
+            button.image = Self.menuBarIcon("mic")
             button.action = #selector(handleStatusItemClick)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.target = self
@@ -51,9 +63,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 let iconName = state == .recording ? "mic.fill" : "mic"
-                self?.statusItem?.button?.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Dictation")
-                // Brand orange when idle/ready; red only while recording.
-                self?.statusItem?.button?.contentTintColor = state == .recording ? .systemRed : AppColors.voiceNS
+                self?.statusItem?.button?.image = Self.menuBarIcon(iconName)
+                // Template icon adapts to the menu bar (white on dark, black on light);
+                // only recording overrides it with red.
+                self?.statusItem?.button?.contentTintColor = state == .recording ? .systemRed : nil
                 self?.fnMonitor.isRecording = (state == .recording)
             }
             .store(in: &cancellables)
@@ -168,11 +181,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         batch.onProgress = { [weak self] msg in
             self?.viewModel.batchStatus = msg
-            self?.statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
+            self?.statusItem?.button?.image = Self.menuBarIcon("doc.text.magnifyingglass")
         }
         batch.onComplete = { [weak self] (done: Int, _: Int) in
             self?.viewModel.batchStatus = nil
-            self?.statusItem?.button?.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "Dictation")
+            self?.statusItem?.button?.image = Self.menuBarIcon("mic")
             if done > 0 {
                 let output = file.deletingPathExtension().appendingPathExtension("txt")
                 self?.notify(title: "Transcrição concluída", message: output.lastPathComponent)
@@ -184,7 +197,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         batch.startSingleFile(file: file, transcriber: viewModel.finalTranscriber, model: viewModel.batchModel)
         viewModel.batchStatus = "Iniciando: \(file.lastPathComponent)"
-        statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
+        statusItem?.button?.image = Self.menuBarIcon("doc.text.magnifyingglass")
     }
 
     @objc func startBatchTranscription() {
@@ -204,17 +217,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         batch.onProgress = { [weak self] msg in
             self?.viewModel.batchStatus = msg
-            self?.statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
+            self?.statusItem?.button?.image = Self.menuBarIcon("doc.text.magnifyingglass")
         }
         batch.onComplete = { [weak self] (done: Int, total: Int) in
             self?.viewModel.batchStatus = nil
-            self?.statusItem?.button?.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "Dictation")
+            self?.statusItem?.button?.image = Self.menuBarIcon("mic")
             self?.notify(title: "Transcrição concluída", message: "\(done) de \(total) arquivo(s) transcritos.")
         }
 
         batch.start(folder: folder, transcriber: viewModel.finalTranscriber, model: viewModel.batchModel)
         viewModel.batchStatus = "Iniciando lote…"
-        statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
+        statusItem?.button?.image = Self.menuBarIcon("doc.text.magnifyingglass")
     }
 
     @objc func showReunioes() {
@@ -283,14 +296,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         batch.onProgress = { [weak self] msg in
             self?.voiceMemosStore.status = msg
             self?.viewModel.batchStatus = msg
-            self?.statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
+            self?.statusItem?.button?.image = Self.menuBarIcon("doc.text.magnifyingglass")
         }
         batch.onComplete = { [weak self] (done: Int, total: Int) in
             self?.voiceMemosStore.isTranscribing = false
             self?.voiceMemosStore.status = nil
             self?.voiceMemosStore.markTranscribed(ids: ids)
             self?.viewModel.batchStatus = nil
-            self?.statusItem?.button?.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "Dictation")
+            self?.statusItem?.button?.image = Self.menuBarIcon("mic")
             self?.notify(title: "Voice Memos", message: "\(done) de \(total) transcrito(s).")
             try? FileManager.default.createDirectory(at: VoiceMemosLibrary.outputFolder, withIntermediateDirectories: true)
             NSWorkspace.shared.open(VoiceMemosLibrary.outputFolder)
@@ -299,7 +312,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         voiceMemosStore.isTranscribing = true
         voiceMemosStore.status = "Iniciando \(memos.count) memo(s)…"
         batch.startFiles(memos.map { $0.fileURL }, transcriber: viewModel.finalTranscriber, model: viewModel.batchModel)
-        statusItem?.button?.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Transcribing")
+        statusItem?.button?.image = Self.menuBarIcon("doc.text.magnifyingglass")
     }
 
     private func notify(title: String, message: String) {

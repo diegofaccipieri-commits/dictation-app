@@ -135,6 +135,12 @@ class TranscriptionManager {
         }
     }
 
+    /// Stop the whisper.cpp server (called on app termination so no orphan survives).
+    func shutdownServer() {
+        whisperCpp?.stop()
+        whisperCpp = nil
+    }
+
     func transcribeSamplesFinal(_ samples: [Float]) async -> String {
         NSLog("DictationApp: [TRANSCRIBE] transcribeSamplesFinal: %d samples (%.1fs)", samples.count, Double(samples.count) / 16000.0)
 
