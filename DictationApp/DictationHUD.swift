@@ -4,10 +4,16 @@ import SwiftUI
 private enum HUDStyle {
     static let darkBackground = Color(red: 18 / 255, green: 20 / 255, blue: 24 / 255)
     static let darkStroke = Color.white.opacity(0.14)
-    // Brand orange over the graphite HUD (translation badge).
-    static let badgeOrange = Color(red: 1, green: 162 / 255, blue: 87 / 255)
     static let recordRed = Color(red: 1, green: 45 / 255, blue: 58 / 255)
-    static let translatingBlue = Color(red: 52 / 255, green: 137 / 255, blue: 235 / 255)
+    static let translatingBlue = Color(red: 0, green: 157 / 255, blue: 207 / 255)
+}
+
+private enum HUDPhase {
+    case recording
+    case transcribing
+    case translating
+    case correcting
+    case idle
 }
 
 // Floating HUD near the cursor — shows recording state and phase timer.
@@ -48,8 +54,15 @@ class DictationHUD {
     func showTranslating() {
         guard let panel, panel.isVisible else { return }
         phaseStart = Date()
-        let size = NSSize(width: 72, height: 64)
-        panel.contentViewController = NSHostingController(rootView: TranslatingHUDView())
+        let size = NSSize(width: 80, height: 112)
+        panel.contentViewController = NSHostingController(
+            rootView: HUDView(
+                phase: .translating,
+                startDate: phaseStart,
+                translationBadge: "TRANSLATING",
+                size: size
+            )
+        )
         let origin = clampToScreen(
             NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - size.height - 8),
             size: size
@@ -64,9 +77,15 @@ class DictationHUD {
 
     private func showStatus(_ state: RecordingState) {
         let badge = state == .recording ? translationBadge : nil
-        let hasBadge = badge != nil
-        let size = NSSize(width: hasBadge ? 80 : 72, height: hasBadge ? 112 : 90)
-        let view = HUDView(state: state, startDate: phaseStart, translationBadge: badge, size: size)
+        let size = NSSize(width: 80, height: 112)
+        let phase: HUDPhase
+        switch state {
+        case .recording: phase = .recording
+        case .transcribing: phase = .transcribing
+        case .correcting: phase = .correcting
+        case .idle: phase = .idle
+        }
+        let view = HUDView(phase: phase, startDate: phaseStart, translationBadge: badge, size: size)
         panel?.contentViewController = NSHostingController(rootView: view)
         let origin = clampToScreen(NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - size.height - 8), size: size)
         panel?.setFrame(NSRect(origin: origin, size: size), display: true)
@@ -99,82 +118,6 @@ class DictationHUD {
     }
 }
 
-private struct TranslatingHUDView: View {
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(HUDStyle.darkBackground)
-                .shadow(color: .black.opacity(0.28), radius: 6, y: 2)
-
-            Circle()
-                .stroke(Color.white.opacity(0.14), lineWidth: 1)
-
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                TranslatingOrbit(date: context.date)
-            }
-
-            Text("translating")
-                .font(.system(size: 7.2, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.9))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(width: 39)
-        }
-        .frame(width: 52, height: 52)
-        .frame(width: 72, height: 64)
-    }
-}
-
-private struct TranslatingOrbit: View {
-    let date: Date
-
-    private var phase: Double {
-        date.timeIntervalSinceReferenceDate
-            .truncatingRemainder(dividingBy: 1.4) / 1.4 * 360
-    }
-
-    var body: some View {
-        Canvas { context, size in
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let radius = min(size.width, size.height) / 2 - 5.5
-            let segmentCount = 15
-
-            for index in 0..<segmentCount {
-                let progress = Double(index) / Double(segmentCount - 1)
-                let end = phase - Double(index) * 4
-                var segment = Path()
-                segment.addArc(
-                    center: center,
-                    radius: radius,
-                    startAngle: .degrees(end - 4.3),
-                    endAngle: .degrees(end),
-                    clockwise: false
-                )
-                context.stroke(
-                    segment,
-                    with: .color(HUDStyle.translatingBlue.opacity(pow(1 - progress, 1.7) * 0.82)),
-                    style: StrokeStyle(
-                        lineWidth: 2.2 - progress * 1.1,
-                        lineCap: .round
-                    )
-                )
-            }
-
-            let radians = phase * .pi / 180
-            let head = CGPoint(
-                x: center.x + cos(radians) * radius,
-                y: center.y + sin(radians) * radius
-            )
-            context.fill(
-                Path(ellipseIn: CGRect(x: head.x - 4.2, y: head.y - 4.2, width: 8.4, height: 8.4)),
-                with: .color(HUDStyle.translatingBlue)
-            )
-        }
-        .frame(width: 48, height: 48)
-        .accessibilityHidden(true)
-    }
-}
-
 private struct HUDTextView: View {
     let text: String
 
@@ -200,27 +143,32 @@ private struct HUDTextView: View {
 // Prototype layout: separate floating pieces with a 5pt gap — badge pill above,
 // 52pt graphite circle with the state, timer pill below. No connectors.
 private struct HUDView: View {
-    let state: RecordingState
+    let phase: HUDPhase
     let startDate: Date
     let translationBadge: String?
     let size: NSSize
 
     var body: some View {
         VStack(spacing: 5) {
-            if let translationBadge {
-                TranslationBadgeView(text: translationBadge)
+            ZStack {
+                if let translationBadge {
+                    TranslationBadgeView(text: translationBadge, color: badgeColor)
+                }
             }
+            .frame(height: 18)
 
             ZStack {
                 Circle()
                     .fill(HUDStyle.darkBackground)
                     .shadow(color: .black.opacity(0.28), radius: 6, y: 2)
 
-                switch state {
+                switch phase {
                 case .recording:
                     RecordingDot()
                 case .transcribing:
                     HUDSpinner()
+                case .translating:
+                    HUDSpinner(color: HUDStyle.translatingBlue)
                 case .correcting:
                     Image(systemName: "checkmark")
                         .foregroundColor(Color(red: 48 / 255, green: 209 / 255, blue: 88 / 255))
@@ -231,22 +179,45 @@ private struct HUDView: View {
             }
             .frame(width: 52, height: 52)
 
-            if state == .recording || state == .transcribing {
-                TimelineView(.animation(minimumInterval: 1)) { context in
-                    Text(elapsed(from: startDate, to: context.date))
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(state == .recording
-                                         ? Color(red: 1, green: 107 / 255, blue: 107 / 255)
-                                         : Color(red: 1, green: 179 / 255, blue: 64 / 255))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 2)
-                        .background(HUDStyle.darkBackground)
-                        .clipShape(Capsule())
+            ZStack {
+                if phase == .recording || phase == .transcribing || phase == .translating {
+                    TimelineView(.animation(minimumInterval: 1)) { context in
+                        Text(elapsed(from: startDate, to: context.date))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(timerColor)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 2)
+                            .background(HUDStyle.darkBackground)
+                            .clipShape(Capsule())
+                    }
                 }
             }
+            .frame(height: 17)
         }
         .padding(.vertical, 4)
         .frame(width: size.width, height: size.height)
+    }
+
+    private var timerColor: Color {
+        switch phase {
+        case .recording:
+            return Color(red: 1, green: 107 / 255, blue: 107 / 255)
+        case .translating:
+            return HUDStyle.translatingBlue
+        default:
+            return Color(red: 1, green: 179 / 255, blue: 64 / 255)
+        }
+    }
+
+    private var badgeColor: Color {
+        switch phase {
+        case .recording:
+            return HUDStyle.recordRed
+        case .translating:
+            return HUDStyle.translatingBlue
+        default:
+            return timerColor
+        }
     }
 
     private func elapsed(from start: Date, to now: Date) -> String {
@@ -255,17 +226,26 @@ private struct HUDView: View {
     }
 }
 
-// Amber ring spinner (18pt, 2.5pt stroke) matching the prototype.
+// Ring spinner shared by transcription and translation.
 private struct HUDSpinner: View {
     @State private var spinning = false
-    private let amber = Color(red: 1, green: 179 / 255, blue: 64 / 255)
+    private let color: Color
+    private let size: CGFloat
+
+    init(
+        color: Color = Color(red: 1, green: 179 / 255, blue: 64 / 255),
+        size: CGFloat = 18
+    ) {
+        self.color = color
+        self.size = size
+    }
 
     var body: some View {
         Circle()
             .trim(from: 0.22, to: 1)
-            .stroke(amber, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-            .background(Circle().stroke(amber.opacity(0.25), lineWidth: 2.5))
-            .frame(width: 18, height: 18)
+            .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            .background(Circle().stroke(color.opacity(0.25), lineWidth: 2.5))
+            .frame(width: size, height: size)
             .rotationEffect(.degrees(spinning ? 360 : 0))
             .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spinning)
             .onAppear { spinning = true }
@@ -274,11 +254,12 @@ private struct HUDSpinner: View {
 
 private struct TranslationBadgeView: View {
     let text: String
+    let color: Color
 
     var body: some View {
         Text(text)
             .font(.system(size: 10, weight: .bold, design: .monospaced))
-            .foregroundColor(HUDStyle.badgeOrange)
+            .foregroundColor(color)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .padding(.horizontal, 7)
@@ -287,7 +268,7 @@ private struct TranslationBadgeView: View {
             .clipShape(Capsule())
             .overlay(
                 Capsule()
-                    .stroke(HUDStyle.badgeOrange, lineWidth: 1)
+                    .stroke(color, lineWidth: 1)
             )
     }
 }

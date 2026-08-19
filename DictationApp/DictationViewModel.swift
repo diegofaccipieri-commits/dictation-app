@@ -254,8 +254,8 @@ class DictationViewModel: ObservableObject {
             guard !finalText.isEmpty else { return }
             if Task.isCancelled { return }
 
-            // Show checkmark for 1 second then dismiss
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            // Show checkmark for 1.5 seconds after transcription or translation completes.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
             if Task.isCancelled { return }
             await MainActor.run {
                 guard let self else { return }
