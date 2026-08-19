@@ -17,7 +17,10 @@ class DictationViewModel: ObservableObject {
     @Published var liveModel: WhisperModel = WhisperModel(rawValue: UserDefaults.standard.string(forKey: "liveModel") ?? "") ?? .defaultLive
     @Published var batchModel: WhisperModel = WhisperModel(rawValue: UserDefaults.standard.string(forKey: "batchModel") ?? "") ?? .defaultBatch
     @Published var transcriptionLanguage: TranscriptionLanguage = TranscriptionLanguage.current
-    @Published var translationMode: TranslationMode = TranslationMode(rawValue: UserDefaults.standard.string(forKey: "translationMode") ?? "") ?? .off
+    @Published var translationMode: TranslationMode = {
+        let saved = TranslationMode(rawValue: UserDefaults.standard.string(forKey: "translationMode") ?? "") ?? .off
+        return TranslationMode.directModes.contains(saved) ? saved : .off
+    }()
     @Published var isTranslating: Bool = false
 
     private let recorder = AudioRecorder()
@@ -30,6 +33,9 @@ class DictationViewModel: ObservableObject {
     private var currentRecordingID: String?
 
     init() {
+        if translationMode == .off {
+            UserDefaults.standard.set(TranslationMode.off.rawValue, forKey: "translationMode")
+        }
         wakeWordMonitor.onWakeWord = { [weak self] in
             guard let self, self.state == .idle else { return }
             self.toggle()
@@ -200,7 +206,7 @@ class DictationViewModel: ObservableObject {
                 if Task.isCancelled { return }
                 await MainActor.run {
                     self?.isTranslating = true
-                    self?.hud.updateText("Translating...")
+                    self?.hud.showTranslating()
                 }
                 NSLog("DictationApp: [TRANSLATE] starting %@ for %d chars", mode.displayName, result.count)
                 if let translated = await self?.translator.translate(result, mode: mode) {

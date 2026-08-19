@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var viewModel: DictationViewModel
     var fnMonitor: FnKeyMonitor?
+    var onOpenTranslation: () -> Void = {}
     @State private var selectedKey: DoubleTapKey = DoubleTapKey(rawValue: UserDefaults.standard.string(forKey: "doubleTapKey") ?? "") ?? .fn
     @State private var recordingStart: Date?
 
@@ -12,6 +13,7 @@ struct ContentView: View {
             statusRow
             transcriptBox
             dictationMain
+            translationWorkspaceButton
 
             if let error = viewModel.errorMessage {
                 Text(error)
@@ -37,7 +39,7 @@ struct ContentView: View {
         }
     }
 
-    private var baseHeight: CGFloat { viewModel.history.isEmpty ? 460 : 486 }
+    private var baseHeight: CGFloat { viewModel.history.isEmpty ? 498 : 524 }
 
     // MARK: Status
 
@@ -143,6 +145,27 @@ struct ContentView: View {
         }
     }
 
+    private var translationWorkspaceButton: some View {
+        Button(action: onOpenTranslation) {
+            HStack(spacing: 7) {
+                Image(systemName: "character.book.closed")
+                Text("Abrir tradução de texto")
+                Spacer()
+                Image(systemName: "arrow.up.right.square")
+                    .foregroundColor(.secondary)
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(AppColors.voice)
+        .background(RoundedRectangle(cornerRadius: 8).fill(AppColors.voice.opacity(0.09)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppColors.voice.opacity(0.24), lineWidth: 1))
+        .help("Abrir o editor para digitar e traduzir textos")
+    }
+
     // MARK: History
 
     private var historySection: some View {
@@ -189,7 +212,9 @@ struct ContentView: View {
                     get: { viewModel.translationMode },
                     set: { viewModel.setTranslationMode($0) }
                 )) {
-                    ForEach(TranslationMode.allCases) { m in
+                    Text(TranslationMode.off.displayName).tag(TranslationMode.off)
+
+                    ForEach(TranslationMode.directModes) { m in
                         Text(m.displayName).tag(m)
                     }
                 }

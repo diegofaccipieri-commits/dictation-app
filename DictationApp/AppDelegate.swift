@@ -8,11 +8,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     var popover: NSPopover?
     let viewModel = DictationViewModel()
+    let hubRouter = MainHubRouter()
     private var cancellables = Set<AnyCancellable>()
     let fnMonitor = FnKeyMonitor()
     private let voiceMemosStore = VoiceMemosStore()
-    private var voiceMemosWindow: NSWindow?
-    private var meetingsWindow: NSWindow?
+    private var mainWindow: NSWindow?
+    private let translationWorkspaceModel = TranslationWorkspaceViewModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Accessory policy: app name visible in menu bar but never steals keyboard focus.
@@ -23,9 +24,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         UpdateChecker.checkForUpdates(userInitiated: false)
     }
 
-    // Clicking the Dock icon shows the popover.
+    // Clicking the Dock icon shows the main hub.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        togglePopover()
+        showMainWindow()
         return false
     }
 
@@ -51,13 +52,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        let contentView = ContentView(viewModel: viewModel, fnMonitor: fnMonitor)
-        let popover = NSPopover()
-        popover.contentSize = NSSize(width: 360, height: 260)
-        popover.behavior = .transient
-        popover.animates = false
-        popover.contentViewController = NSHostingController(rootView: contentView)
-        self.popover = popover
+        let contentView = MainHubView(
+            router: hubRouter,
+            viewModel: viewModel,
+            translationModel: translationWorkspaceModel,
+            voiceMemosStore: voiceMemosStore,
+            fnMonitor: fnMonitor,
+            onSelectFile: { [weak self] in self?.startFileTranscription() },
+            onSelectFolder: { [weak self] in self?.startBatchTranscription() },
+            onTranscribeMemos: { [weak self] ids, diarize in
+                self?.transcribeMemos(ids: ids, diarize: diarize)
+            },
+            onCheckForUpdates: { [weak self] in self?.checkForUpdates() }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Dictation"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.minSize = NSSize(width: 1080, height: 700)
+        window.backgroundColor = AppColors.windowBGNS
+        window.contentViewController = NSHostingController(rootView: contentView)
+        window.setContentSize(NSSize(width: 1180, height: 760))
+        window.center()
+        window.isReleasedWhenClosed = false
+        mainWindow = window
 
         viewModel.$state
             .receive(on: DispatchQueue.main)
@@ -131,6 +154,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item(viewModel.state == .recording ? "Parar gravação" : "Iniciar ditado",
                           symbol: viewModel.state == .recording ? "stop.circle" : "record.circle",
                           action: #selector(toggleRecording)))
+        menu.addItem(translationSelectorItem())
 
         menu.addItem(.separator())
 
@@ -140,6 +164,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        menu.addItem(item("Tradução de texto…", symbol: "character.book.closed", action: #selector(showTranslationWorkspace)))
         menu.addItem(item("Reuniões…", symbol: "person.2.wave.2", action: #selector(showReunioes)))
 
         menu.addItem(.separator())
@@ -161,6 +186,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         it.target = self
         it.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         return it
+    }
+
+    private func translationSelectorItem() -> NSMenuItem {
+        let current = viewModel.translationMode
+        let selector = NSMenuItem(
+            title: "Tradução: \(current.displayName)",
+            action: nil,
+            keyEquivalent: ""
+        )
+        selector.image = NSImage(
+            systemSymbolName: current == .off ? "character.bubble" : "character.bubble.fill",
+            accessibilityDescription: nil
+        )
+
+        let submenu = NSMenu(title: "Tradução do ditado")
+        for mode in [TranslationMode.off] + TranslationMode.directModes {
+            let option = NSMenuItem(
+                title: mode.displayName,
+                action: #selector(selectTranslationMode(_:)),
+                keyEquivalent: ""
+            )
+            option.target = self
+            option.representedObject = mode.rawValue
+            option.state = current == mode ? .on : .off
+            submenu.addItem(option)
+        }
+        selector.submenu = submenu
+        return selector
+    }
+
+    @objc private func selectTranslationMode(_ sender: NSMenuItem) {
+        guard
+            let rawValue = sender.representedObject as? String,
+            let mode = TranslationMode(rawValue: rawValue),
+            mode == .off || TranslationMode.directModes.contains(mode)
+        else { return }
+
+        viewModel.setTranslationMode(mode)
     }
 
     @objc func startFileTranscription() {
@@ -235,43 +298,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             notify(title: "Reuniões", message: "O gravador de reuniões requer macOS 15 ou superior.")
             return
         }
-        if meetingsWindow == nil {
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 940, height: 620),
-                styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
-                backing: .buffered, defer: false)
-            window.title = "Reuniões"
-            // Header do app assume a barra de título (traffic lights sobre o cabeçalho laranja).
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
-            window.backgroundColor = AppColors.windowBGNS
-            window.contentViewController = NSHostingController(rootView: ReunioesView())
-            window.center()
-            window.isReleasedWhenClosed = false
-            meetingsWindow = window
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        meetingsWindow?.makeKeyAndOrderFront(nil)
+        hubRouter.selection = .meetings
+        showMainWindow()
+    }
+
+    @objc func showTranslationWorkspace() {
+        hubRouter.selection = .translation
+        showMainWindow()
     }
 
     @objc func showVoiceMemos() {
-        if voiceMemosWindow == nil {
-            let view = VoiceMemosView(store: voiceMemosStore) { [weak self] ids, diarize in
-                self?.transcribeMemos(ids: ids, diarize: diarize)
-            }
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 580, height: 460),
-                styleMask: [.titled, .closable, .resizable, .miniaturizable],
-                backing: .buffered, defer: false)
-            window.title = "Transcrever do Voice Memos"
-            window.contentViewController = NSHostingController(rootView: view)
-            window.center()
-            window.isReleasedWhenClosed = false
-            voiceMemosWindow = window
-        }
         voiceMemosStore.reload()
-        NSApp.activate(ignoringOtherApps: true)
-        voiceMemosWindow?.makeKeyAndOrderFront(nil)
+        hubRouter.selection = .voiceMemos
+        showMainWindow()
     }
 
     private func transcribeMemos(ids: Set<String>, diarize: Bool) {
@@ -331,12 +370,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func togglePopover() {
-        guard let button = statusItem?.button else { return }
-        if popover?.isShown == true {
-            popover?.performClose(nil)
+        if mainWindow?.isVisible == true {
+            mainWindow?.orderOut(nil)
         } else {
-            popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            showMainWindow()
         }
+    }
+
+    func showMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        mainWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc func restartApp() {

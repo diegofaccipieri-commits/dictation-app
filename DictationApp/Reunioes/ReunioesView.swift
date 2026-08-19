@@ -3,6 +3,7 @@ import AppKit
 
 @available(macOS 15, *)
 struct ReunioesView: View {
+    var embedded = false
     @StateObject private var recorder = MeetingRecorder()
     @StateObject private var player = MeetingPlayer()
     @StateObject private var transcriber = MeetingTranscriber()
@@ -15,6 +16,8 @@ struct ReunioesView: View {
             header
             Divider().overlay(AppColors.borderSoft)
             if !recorder.permissions.allGranted { permissionsBanner }
+            persistentAudioChannels
+            Divider().overlay(AppColors.borderSoft)
             HStack(spacing: 0) {
                 sidebar
                     .frame(width: 264)
@@ -25,7 +28,7 @@ struct ReunioesView: View {
             }
         }
         .background(AppColors.windowBG)
-        .frame(minWidth: 880, minHeight: 560)
+        .frame(minWidth: embedded ? 780 : 880, minHeight: 560)
         .tint(AppColors.voice)
         .onAppear {
             recorder.onAppear()
@@ -70,7 +73,7 @@ struct ReunioesView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.leading, 84)
+        .padding(.leading, embedded ? 16 : 84)
         .padding(.trailing, 14)
         .padding(.top, 8)
         .padding(.bottom, 9)
@@ -85,14 +88,64 @@ struct ReunioesView: View {
             Text(Self.elapsed(recorder.elapsed))
                 .font(.system(.body, design: .monospaced).weight(.medium))
                 .foregroundStyle(AppColors.recording)
-            MeetingLiveTrackMeter(label: "Você", systemImage: "mic.fill", color: AppColors.voice,
-                                  levels: recorder.microphoneLevels)
-            MeetingLiveTrackMeter(label: "Mac", systemImage: "speaker.wave.2.fill", color: AppColors.others,
-                                  levels: recorder.systemLevels)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
         .background(Capsule().fill(AppColors.recording.opacity(0.09)))
+    }
+
+    private var persistentAudioChannels: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("CANAIS DE ÁUDIO")
+                .font(.system(size: 10, weight: .bold))
+                .kerning(0.7)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                persistentChannel(
+                    label: "VOCÊ · MICROFONE",
+                    symbol: "mic.fill",
+                    color: AppColors.voice,
+                    levels: recorder.microphoneLevels
+                )
+                persistentChannel(
+                    label: "OUTROS · ÁUDIO DO MAC",
+                    symbol: "speaker.wave.2.fill",
+                    color: AppColors.others,
+                    levels: recorder.systemLevels
+                )
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(AppColors.windowBG)
+    }
+
+    private func persistentChannel(
+        label: String,
+        symbol: String,
+        color: Color,
+        levels: [Float]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol).foregroundStyle(color)
+                Text(label).font(.system(size: 10.5, weight: .bold))
+                Spacer()
+                Text(recorder.isRecording ? "AO VIVO" : "AGUARDANDO SINAL")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(recorder.isRecording ? color : Color.secondary)
+            }
+            MeetingLiveWaveform(levels: levels, color: color)
+                .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 38)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.035)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(AppColors.borderSoft, lineWidth: 1))
+        }
+        .padding(9)
+        .background(RoundedRectangle(cornerRadius: 8).fill(AppColors.panel))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppColors.borderSoft, lineWidth: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Canal de áudio: \(label)")
     }
 
     private var permissionsBanner: some View {

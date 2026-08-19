@@ -7,6 +7,7 @@ private enum HUDStyle {
     // Brand orange over the graphite HUD (translation badge).
     static let badgeOrange = Color(red: 1, green: 162 / 255, blue: 87 / 255)
     static let recordRed = Color(red: 1, green: 45 / 255, blue: 58 / 255)
+    static let translatingBlue = Color(red: 52 / 255, green: 137 / 255, blue: 235 / 255)
 }
 
 // Floating HUD near the cursor — shows recording state and phase timer.
@@ -41,6 +42,18 @@ class DictationHUD {
         let width = min(420, max(180, estimated))
         let size = NSSize(width: width, height: 48)
         let origin = clampToScreen(NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 76), size: size)
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+
+    func showTranslating() {
+        guard let panel, panel.isVisible else { return }
+        phaseStart = Date()
+        let size = NSSize(width: 72, height: 64)
+        panel.contentViewController = NSHostingController(rootView: TranslatingHUDView())
+        let origin = clampToScreen(
+            NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - size.height - 8),
+            size: size
+        )
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
     }
 
@@ -83,6 +96,82 @@ class DictationHUD {
         p.hasShadow = false
         p.ignoresMouseEvents = true
         panel = p
+    }
+}
+
+private struct TranslatingHUDView: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(HUDStyle.darkBackground)
+                .shadow(color: .black.opacity(0.28), radius: 6, y: 2)
+
+            Circle()
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                TranslatingOrbit(date: context.date)
+            }
+
+            Text("translating")
+                .font(.system(size: 7.2, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.9))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(width: 39)
+        }
+        .frame(width: 52, height: 52)
+        .frame(width: 72, height: 64)
+    }
+}
+
+private struct TranslatingOrbit: View {
+    let date: Date
+
+    private var phase: Double {
+        date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: 1.4) / 1.4 * 360
+    }
+
+    var body: some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = min(size.width, size.height) / 2 - 5.5
+            let segmentCount = 15
+
+            for index in 0..<segmentCount {
+                let progress = Double(index) / Double(segmentCount - 1)
+                let end = phase - Double(index) * 4
+                var segment = Path()
+                segment.addArc(
+                    center: center,
+                    radius: radius,
+                    startAngle: .degrees(end - 4.3),
+                    endAngle: .degrees(end),
+                    clockwise: false
+                )
+                context.stroke(
+                    segment,
+                    with: .color(HUDStyle.translatingBlue.opacity(pow(1 - progress, 1.7) * 0.82)),
+                    style: StrokeStyle(
+                        lineWidth: 2.2 - progress * 1.1,
+                        lineCap: .round
+                    )
+                )
+            }
+
+            let radians = phase * .pi / 180
+            let head = CGPoint(
+                x: center.x + cos(radians) * radius,
+                y: center.y + sin(radians) * radius
+            )
+            context.fill(
+                Path(ellipseIn: CGRect(x: head.x - 4.2, y: head.y - 4.2, width: 8.4, height: 8.4)),
+                with: .color(HUDStyle.translatingBlue)
+            )
+        }
+        .frame(width: 48, height: 48)
+        .accessibilityHidden(true)
     }
 }
 
