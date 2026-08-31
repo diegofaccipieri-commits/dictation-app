@@ -46,6 +46,7 @@ class DictationViewModel: ObservableObject {
             self.stopRecording()
         }
         Task { await self.loadModels(liveModel: liveModel, batchModel: batchModel) }
+        Task { await self.translator.warmUp(mode: self.translationMode) }
     }
 
     /// Called on app termination: stop the whisper.cpp server so it doesn't outlive the app.
@@ -90,6 +91,7 @@ class DictationViewModel: ObservableObject {
         translationMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: "translationMode")
         NSLog("DictationApp: [VM] translationMode -> %@", mode.displayName)
+        Task { await translator.warmUp(mode: mode) }
     }
 
     private func loadModels(liveModel: WhisperModel = .defaultLive, batchModel: WhisperModel = .defaultBatch) async {
@@ -226,7 +228,16 @@ class DictationViewModel: ObservableObject {
                     self?.hud.showTranslating()
                 }
                 NSLog("DictationApp: [TRANSLATE] starting %@ for %d chars", mode.displayName, result.count)
-                if let translated = await self?.translator.translate(result, mode: mode) {
+                // Direct language pairs go through Apple's offline translation when the
+                // pair is installed; anything else (or any failure) falls back to Claude.
+                var translated: String?
+                if #available(macOS 15.0, *), TranslationMode.directModes.contains(mode) {
+                    translated = await AppleTranslator.shared.translate(result, mode: mode)
+                }
+                if translated == nil {
+                    translated = await self?.translator.translate(result, mode: mode)
+                }
+                if let translated {
                     if Task.isCancelled { return }
                     finalText = translated
                     NSLog("DictationApp: [TRANSLATE] done: %d chars", translated.count)
