@@ -12,6 +12,12 @@ class AudioRecorder: NSObject, ObservableObject {
     var onRecordingInterrupted: (() -> Void)?
 
     private var configChangeObserver: NSObjectProtocol?
+    private var isRecordingSession = false
+    private var restartAttempts = 0
+    // Config changes happen legitimately (default device switch, Continuity mic churn,
+    // AUHAL re-selecting the input right after engine start). Restart transparently and
+    // keep the accumulated samples; only give up after repeated failures in one session.
+    private let maxRestartAttempts = 3
 
     var currentSamples: ([Float], Double) {
         sampleLock.lock()
@@ -27,9 +33,14 @@ class AudioRecorder: NSObject, ObservableObject {
         sampleRate = 16000  // buffer is always resampled to 16kHz (WhisperKit requirement)
         sampleLock.unlock()
         tapCallbackCount = 0
+        restartAttempts = 0
+        isRecordingSession = true
 
         NSLog("DictationApp: [RECORDER] startRecording called")
+        try startEngine()
+    }
 
+    private func startEngine() throws {
         let engine = AVAudioEngine()
         audioEngine = engine
 
@@ -75,15 +86,46 @@ class AudioRecorder: NSObject, ObservableObject {
             NotificationCenter.default.removeObserver(prev)
         }
         // If macOS reconfigures the audio hardware (device change, app switch with exclusive audio),
-        // AVAudioEngine stops automatically. Catch this and notify the ViewModel to finalize gracefully.
+        // AVAudioEngine stops automatically. Restart transparently, keeping the captured samples.
         configChangeObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
             queue: .main
         ) { [weak self] _ in
-            NSLog("DictationApp: AVAudioEngine configuration changed — stopping recording")
-            self?.onRecordingInterrupted?()
+            self?.handleConfigurationChange()
         }
+    }
+
+    private func handleConfigurationChange() {
+        guard isRecordingSession else { return }
+
+        restartAttempts += 1
+        NSLog("DictationApp: [RECORDER] AVAudioEngine configuration changed — restart attempt %d/%d", restartAttempts, maxRestartAttempts)
+
+        guard restartAttempts <= maxRestartAttempts else {
+            NSLog("DictationApp: [RECORDER] too many configuration changes — finalizing with captured audio")
+            onRecordingInterrupted?()
+            return
+        }
+
+        teardownEngine()
+        do {
+            try startEngine()
+            NSLog("DictationApp: [RECORDER] engine restarted, samples preserved")
+        } catch {
+            NSLog("DictationApp: [RECORDER] engine restart failed: %@ — finalizing with captured audio", error.localizedDescription)
+            onRecordingInterrupted?()
+        }
+    }
+
+    private func teardownEngine() {
+        if let obs = configChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+            configChangeObserver = nil
+        }
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
     }
 
     // Linear interpolation resample to 16kHz — accurate enough for speech.
@@ -106,13 +148,8 @@ class AudioRecorder: NSObject, ObservableObject {
 
     func stopRecording() {
         NSLog("DictationApp: [RECORDER] stopRecording called (%d buffers total)", tapCallbackCount)
-        if let obs = configChangeObserver {
-            NotificationCenter.default.removeObserver(obs)
-            configChangeObserver = nil
-        }
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine?.stop()
-        audioEngine = nil
+        isRecordingSession = false
+        teardownEngine()
         sampleLock.lock()
         sampleBuffer = []
         sampleLock.unlock()

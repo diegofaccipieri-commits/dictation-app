@@ -72,6 +72,9 @@ class DictationHUD {
 
     func hide() {
         panel?.orderOut(nil)
+        // Release the hosted SwiftUI view: its repeatForever animations keep the
+        // display link and CA commits running even with the panel ordered out.
+        panel?.contentViewController = nil
         translationBadge = nil
     }
 
@@ -181,7 +184,7 @@ private struct HUDView: View {
 
             ZStack {
                 if phase == .recording || phase == .transcribing || phase == .translating {
-                    TimelineView(.animation(minimumInterval: 1)) { context in
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text(elapsed(from: startDate, to: context.date))
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundColor(timerColor)

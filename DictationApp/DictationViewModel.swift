@@ -171,6 +171,23 @@ class DictationViewModel: ObservableObject {
         DictationDiagnostics.record("recording_stopped", fields: fields)
         saveRecentDictationAudio(samples: allSamples, recordingID: recordingID, fields: fields)
 
+        // Silence guard: whisper hallucinates text ("Thank you.") on near-silent audio.
+        // Real speech peaks well above 0.02 (typical dictations ~0.4).
+        let peak = fields["peak"] as? Float ?? 0
+        if peak < 0.02 {
+            NSLog("DictationApp: [VM] audio is silent (peak %.4f) — skipping transcription", peak)
+            DictationDiagnostics.record("silent_recording_skipped", fields: [
+                "recording_id": recordingID,
+                "peak": peak
+            ])
+            errorMessage = "No speech detected"
+            state = .idle
+            hud.hide()
+            if isWakeWordEnabled { wakeWordMonitor.start() }
+            recorder.stopRecording()
+            return
+        }
+
         finalizeTranscription(samples: allSamples, recordingID: recordingID)
         recorder.stopRecording()
     }

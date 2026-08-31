@@ -101,7 +101,7 @@ struct ContentView: View {
                 switch viewModel.state {
                 case .recording:
                     if let start = recordingStart {
-                        TimelineView(.animation(minimumInterval: 1)) { context in
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
                             Text(elapsedString(from: start, to: context.date))
                                 .font(.system(size: 20, weight: .bold, design: .monospaced))
                                 .foregroundColor(AppColors.recording)
