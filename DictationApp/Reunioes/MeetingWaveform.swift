@@ -199,16 +199,15 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private func startTimer() {
         timer?.invalidate()
-        let t = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+        // 10 Hz is plenty for a playhead; every publish re-renders the detail pane.
+        let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 if let p = self.player, p.duration > 0 {
-                    self.progress = p.currentTime / p.duration
-                    self.currentSeconds = p.currentTime
+                    self.publish(progress: p.currentTime / p.duration, seconds: p.currentTime)
                 } else if let p = self.combinedPlayer, self.pairDuration > 0 {
                     let current = p.currentTime().seconds
-                    self.progress = current / self.pairDuration
-                    self.currentSeconds = current
+                    self.publish(progress: current / self.pairDuration, seconds: current)
                     if p.timeControlStatus != .playing && current >= self.pairDuration {
                         self.stop()
                     }
@@ -220,6 +219,12 @@ final class MeetingPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t
+    }
+
+    /// Skip publishing when nothing visible changed (paused player, sub-0.1s jitter).
+    private func publish(progress newProgress: Double, seconds: Double) {
+        if abs(newProgress - progress) >= 0.0005 { progress = newProgress }
+        if abs(seconds - currentSeconds) >= 0.1 { currentSeconds = seconds }
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {

@@ -11,24 +11,42 @@ import OSLog
 /// recording lost 66MB to an unfinalized moov. The spool lives outside Dropbox so multi-GB
 /// transient files never sync. `recoverOrphans` turns spools from dead sessions into .m4a.
 ///
+/// The AAC .m4a is ALSO encoded live, in parallel with the PCM spool (about 0.6% of realtime
+/// CPU). On a clean stop the live file is simply closed and moved into place, so stopping is
+/// instant instead of re-encoding an hour of PCM with afconvert (~1 min per track). The PCM
+/// spool remains the crash-safety net: the live .m4a has no moov until closed, so after a crash
+/// `recoverOrphans` discards it and remuxes the CAF.
+///
 /// Not internally synchronized: call `write` from a single queue (the capture queue).
 @available(macOS 15, *)
 final class MeetingCrashSafeTrack: @unchecked Sendable {
     private let finalURL: URL
     private let cafURL: URL
+    private let liveAACURL: URL
     private let label: String
     private let log = Logger(subsystem: "com.diego.dictationapp", category: "MeetingTrack")
 
     private var file: AVAudioFile?
+    private var liveAAC: AVAudioFile?
     private var failed = false
+    private var liveAACFailed = false
     private(set) var framesWritten: Int64 = 0
 
     init(finalURL: URL, label: String) {
         self.finalURL = finalURL
         self.cafURL = Self.spoolURL(for: finalURL)
+        self.liveAACURL = Self.liveAACURL(for: finalURL)
         self.label = label
         try? FileManager.default.removeItem(at: finalURL)
         try? FileManager.default.removeItem(at: cafURL)
+        try? FileManager.default.removeItem(at: liveAACURL)
+    }
+
+    /// Local spool sibling for the live AAC encode (same base name, .m4a, in the spool dir).
+    static func liveAACURL(for m4a: URL) -> URL {
+        MeetingPaths.spoolDir
+            .appendingPathComponent(m4a.deletingPathExtension().lastPathComponent)
+            .appendingPathExtension("m4a")
     }
 
     /// Local spool sibling for a final .m4a (same base name, .caf, in the spool dir).
@@ -64,6 +82,20 @@ final class MeetingCrashSafeTrack: @unchecked Sendable {
                 log.error("MeetingTrack[\(self.label, privacy: .public)] open failed: \(error.localizedDescription, privacy: .public)")
                 return
             }
+            let aacSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: buffer.format.sampleRate,
+                AVNumberOfChannelsKey: Int(buffer.format.channelCount),
+                AVEncoderBitRateKey: 128_000,
+            ]
+            do {
+                liveAAC = try AVAudioFile(forWriting: liveAACURL, settings: aacSettings,
+                                          commonFormat: buffer.format.commonFormat,
+                                          interleaved: buffer.format.isInterleaved)
+            } catch {
+                liveAACFailed = true
+                log.error("MeetingTrack[\(self.label, privacy: .public)] live AAC open failed, will remux on stop: \(error.localizedDescription, privacy: .public)")
+            }
         }
         do {
             try file?.write(from: buffer)
@@ -72,21 +104,65 @@ final class MeetingCrashSafeTrack: @unchecked Sendable {
             failed = true
             log.error("MeetingTrack[\(self.label, privacy: .public)] write failed: \(error.localizedDescription, privacy: .public)")
         }
+        if !liveAACFailed, let liveAAC {
+            do {
+                try liveAAC.write(from: buffer)
+            } catch {
+                liveAACFailed = true
+                self.liveAAC = nil
+                log.error("MeetingTrack[\(self.label, privacy: .public)] live AAC write failed, will remux on stop: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     /// Close the CAF and remux it to the final .m4a. Returns true on success.
     /// On remux failure the CAF is KEPT so `recoverOrphans` can retry on next launch.
     @discardableResult
     func finalize() async -> Bool {
-        file = nil   // closes the AVAudioFile
-        guard FileManager.default.fileExists(atPath: cafURL.path) else { return false }
+        file = nil      // closes the CAF
+        liveAAC = nil   // closes the live .m4a (writes the moov)
+        guard FileManager.default.fileExists(atPath: cafURL.path) else {
+            try? FileManager.default.removeItem(at: liveAACURL)
+            return false
+        }
+
+        if !liveAACFailed, promoteLiveAAC() {
+            try? FileManager.default.removeItem(at: cafURL)
+            return true
+        }
+
+        try? FileManager.default.removeItem(at: liveAACURL)
+        let start = Date()
         let ok = await Self.remux(caf: cafURL, to: finalURL)
+        NSLog("DictationApp: [MEET] %@ track remuxed via afconvert in %.1fs (ok=%d)", label, Date().timeIntervalSince(start), ok ? 1 : 0)
         if ok {
             try? FileManager.default.removeItem(at: cafURL)
         } else {
             log.error("MeetingTrack[\(self.label, privacy: .public)] remux failed; keeping CAF for recovery")
         }
         return ok
+    }
+
+    /// Validate the live-encoded .m4a against the PCM frame count and move it into place.
+    private func promoteLiveAAC() -> Bool {
+        guard framesWritten > 0,
+              let probe = try? AVAudioFile(forReading: liveAACURL) else { return false }
+        let encodedFrames = probe.length
+        // AAC adds encoder priming/padding; anything beyond ~1s of drift means a broken file.
+        let tolerance = Int64(probe.processingFormat.sampleRate)
+        guard abs(encodedFrames - framesWritten) <= tolerance else {
+            log.error("MeetingTrack[\(self.label, privacy: .public)] live AAC length mismatch (\(encodedFrames) vs \(self.framesWritten)); remuxing")
+            return false
+        }
+        do {
+            try? FileManager.default.removeItem(at: finalURL)
+            try FileManager.default.moveItem(at: liveAACURL, to: finalURL)
+            NSLog("DictationApp: [MEET] %@ track finalized from live AAC (instant)", label)
+            return true
+        } catch {
+            log.error("MeetingTrack[\(self.label, privacy: .public)] live AAC move failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
     }
 
     // MARK: - Encode / recovery
@@ -115,6 +191,10 @@ final class MeetingCrashSafeTrack: @unchecked Sendable {
         let log = Logger(subsystem: "com.diego.dictationapp", category: "MeetingTrack")
         guard let files = try? FileManager.default.contentsOfDirectory(at: spoolDir, includingPropertiesForKeys: nil) else { return 0 }
         var recovered = 0
+        // Partial live-AAC files from a crashed session have no moov and are useless; drop them.
+        for stale in files where stale.pathExtension == "m4a" && stale.lastPathComponent.hasPrefix("meeting_") {
+            try? FileManager.default.removeItem(at: stale)
+        }
         for caf in files where caf.pathExtension == "caf" && caf.lastPathComponent.hasPrefix("meeting_") {
             let m4a = finalURL(forSpool: caf)
             if FileManager.default.fileExists(atPath: m4a.path) {

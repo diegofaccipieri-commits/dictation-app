@@ -90,11 +90,12 @@ final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate, @u
         micCapture = nil
         await mic?.stop()
 
-        // Finalize (remux CAF → m4a) both tracks.
+        // Finalize both tracks concurrently (instant when the live AAC is valid).
         let track = systemTrack
         systemTrack = nil
-        await track?.finalize()
-        await mic?.finalizeTrack()
+        async let systemDone: Bool? = track?.finalize()
+        async let micDone: Void? = mic?.finalizeTrack()
+        _ = await (systemDone, micDone)
         log.info("Meeting capture stopped")
     }
 
