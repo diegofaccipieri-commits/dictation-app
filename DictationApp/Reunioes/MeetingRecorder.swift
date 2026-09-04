@@ -12,14 +12,14 @@ final class MeetingRecorder: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var permissions = MeetingPermissions()
     @Published private(set) var meetings: [MeetingItem] = []
-    @Published private(set) var microphoneLevels = Array(repeating: Float(0), count: 32)
-    @Published private(set) var systemLevels = Array(repeating: Float(0), count: 32)
+
+    // High-frequency state lives in its own observable objects so that only the meter
+    // and clock subviews re-render (~16 Hz per channel, 4 Hz clock). When these were
+    // @Published here, every tick re-rendered the whole Reunioes page, transcript included.
+    let meters = MeetingLiveMeters()
+    let clock = MeetingClock()
 
     private var engine: MeetingCaptureEngine?
-    private var timer: Timer?
-    private var startDate: Date?
-    private var lastMicrophoneLevelUpdate = Date.distantPast
-    private var lastSystemLevelUpdate = Date.distantPast
 
     func onAppear() {
         refreshPermissions()
@@ -64,11 +64,17 @@ final class MeetingRecorder: ObservableObject {
                 await self?.stop()
             }
         }
+        // Throttle on the capture queue, before hopping to the main actor: the system tap
+        // delivers ~100 buffers/s and each hop used to be a main-thread task.
+        let micThrottle = LevelThrottle(interval: 1.0 / 16.0)
+        let systemThrottle = LevelThrottle(interval: 1.0 / 16.0)
         engine.onMicrophoneLevel = { [weak self] level in
-            Task { @MainActor in self?.appendMicrophoneLevel(level) }
+            guard micThrottle.shouldEmit() else { return }
+            Task { @MainActor in self?.meters.appendMicrophone(level) }
         }
         engine.onSystemLevel = { [weak self] level in
-            Task { @MainActor in self?.appendSystemLevel(level) }
+            guard systemThrottle.shouldEmit() else { return }
+            Task { @MainActor in self?.meters.appendSystem(level) }
         }
         // Digital-silence alert: jumps in front of every app; the user is in a meeting, not here.
         engine.onSystemSilenceAlert = { [weak engine] silentFor in
@@ -85,10 +91,9 @@ final class MeetingRecorder: ObservableObject {
         self.engine = engine
         do {
             try await engine.start()
-            startDate = Date()
-            elapsed = 0
-            resetLiveLevels()
-            startTimer()
+            meters.reset()
+            meters.isLive = true
+            clock.start()
             isRecording = true
         } catch {
             lastError = error.localizedDescription
@@ -99,12 +104,13 @@ final class MeetingRecorder: ObservableObject {
 
     func stop() async {
         guard let engine else { return }
-        stopTimer()
+        clock.stop()
+        meters.isLive = false
         MeetingAlertPanel.shared.hide()
         await engine.stop()
         self.engine = nil
         isRecording = false
-        resetLiveLevels()
+        meters.reset()
         loadMeetings()
     }
 
@@ -127,10 +133,20 @@ final class MeetingRecorder: ObservableObject {
             lastError = "Nao foi possivel apagar a reuniao: \(error.localizedDescription)"
         }
     }
+}
 
-    // MARK: Timer
-    private func startTimer() {
+/// Elapsed-time clock for the active recording. Observed only by the elapsed label.
+@available(macOS 15, *)
+@MainActor
+final class MeetingClock: ObservableObject {
+    @Published private(set) var elapsed: TimeInterval = 0
+    private var timer: Timer?
+    private var startDate: Date?
+
+    func start() {
         timer?.invalidate()
+        startDate = Date()
+        elapsed = 0
         let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let s = self.startDate else { return }
@@ -141,23 +157,34 @@ final class MeetingRecorder: ObservableObject {
         timer = t
     }
 
-    private func stopTimer() { timer?.invalidate(); timer = nil; startDate = nil }
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        startDate = nil
+    }
+}
 
-    // MARK: Live input meters
-    private func appendMicrophoneLevel(_ rawLevel: Float) {
-        guard isRecording else { return }
-        let now = Date()
-        guard now.timeIntervalSince(lastMicrophoneLevelUpdate) >= 1.0 / 16.0 else { return }
-        lastMicrophoneLevelUpdate = now
+/// Live input meters (32 buckets per channel). Observed only by the channel meter views.
+@available(macOS 15, *)
+@MainActor
+final class MeetingLiveMeters: ObservableObject {
+    @Published private(set) var microphoneLevels = Array(repeating: Float(0), count: 32)
+    @Published private(set) var systemLevels = Array(repeating: Float(0), count: 32)
+    var isLive = false
+
+    func appendMicrophone(_ rawLevel: Float) {
+        guard isLive else { return }
         append(rawLevel, to: &microphoneLevels)
     }
 
-    private func appendSystemLevel(_ rawLevel: Float) {
-        guard isRecording else { return }
-        let now = Date()
-        guard now.timeIntervalSince(lastSystemLevelUpdate) >= 1.0 / 16.0 else { return }
-        lastSystemLevelUpdate = now
+    func appendSystem(_ rawLevel: Float) {
+        guard isLive else { return }
         append(rawLevel, to: &systemLevels)
+    }
+
+    func reset() {
+        microphoneLevels = Array(repeating: 0, count: 32)
+        systemLevels = Array(repeating: 0, count: 32)
     }
 
     private func append(_ rawLevel: Float, to levels: inout [Float]) {
@@ -166,11 +193,21 @@ final class MeetingRecorder: ObservableObject {
         levels.append(visibleLevel)
         if levels.count > 32 { levels.removeFirst(levels.count - 32) }
     }
+}
 
-    private func resetLiveLevels() {
-        microphoneLevels = Array(repeating: 0, count: 32)
-        systemLevels = Array(repeating: 0, count: 32)
-        lastMicrophoneLevelUpdate = .distantPast
-        lastSystemLevelUpdate = .distantPast
+/// Rate limiter safe to call from any queue.
+final class LevelThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = Date.distantPast
+    private let interval: TimeInterval
+
+    init(interval: TimeInterval) { self.interval = interval }
+
+    func shouldEmit() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let now = Date()
+        guard now.timeIntervalSince(last) >= interval else { return false }
+        last = now
+        return true
     }
 }

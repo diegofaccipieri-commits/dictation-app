@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 @available(macOS 15, *)
 struct ReunioesView: View {
@@ -85,9 +86,7 @@ struct ReunioesView: View {
             Image(systemName: "record.circle.fill")
                 .foregroundStyle(AppColors.recording)
                 .symbolEffect(.pulse, options: .repeating)
-            Text(Self.elapsed(recorder.elapsed))
-                .font(.system(.body, design: .monospaced).weight(.medium))
-                .foregroundStyle(AppColors.recording)
+            MeetingElapsedLabel(clock: recorder.clock)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
@@ -102,17 +101,21 @@ struct ReunioesView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
-                persistentChannel(
+                MeetingChannelMeterCard(
                     label: "VOCÊ · MICROFONE",
                     symbol: "mic.fill",
                     color: AppColors.voice,
-                    levels: recorder.microphoneLevels
+                    channel: .microphone,
+                    isRecording: recorder.isRecording,
+                    meters: recorder.meters
                 )
-                persistentChannel(
+                MeetingChannelMeterCard(
                     label: "OUTROS · ÁUDIO DO MAC",
                     symbol: "speaker.wave.2.fill",
                     color: AppColors.others,
-                    levels: recorder.systemLevels
+                    channel: .system,
+                    isRecording: recorder.isRecording,
+                    meters: recorder.meters
                 )
             }
         }
@@ -121,32 +124,6 @@ struct ReunioesView: View {
         .background(AppColors.windowBG)
     }
 
-    private func persistentChannel(
-        label: String,
-        symbol: String,
-        color: Color,
-        levels: [Float]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Image(systemName: symbol).foregroundStyle(color)
-                Text(label).font(.system(size: 10.5, weight: .bold))
-                Spacer()
-                Text(recorder.isRecording ? "AO VIVO" : "AGUARDANDO SINAL")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(recorder.isRecording ? color : Color.secondary)
-            }
-            MeetingLiveWaveform(levels: levels, color: color)
-                .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 38)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.035)))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(AppColors.borderSoft, lineWidth: 1))
-        }
-        .padding(9)
-        .background(RoundedRectangle(cornerRadius: 8).fill(AppColors.panel))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppColors.borderSoft, lineWidth: 1))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Canal de áudio: \(label)")
-    }
 
     private var permissionsBanner: some View {
         HStack(spacing: 10) {
@@ -350,6 +327,7 @@ struct MeetingDetailView: View {
     @State private var trimSelection: MeetingTrimLogic.Selection?
     @State private var isExportingTrim = false
     @State private var trimError: String?
+    @State private var transcriptExportError: String?
     @State private var showingRemoveAlert = false
     @State private var waveformGeneration = 0
     @State private var micPeaks: [Float] = []
@@ -396,6 +374,14 @@ struct MeetingDetailView: View {
             } else {
                 Text("O trecho selecionado será apagado permanentemente dos áudios desta reunião.")
             }
+        }
+        .alert("Não foi possível exportar", isPresented: Binding(
+            get: { transcriptExportError != nil },
+            set: { if !$0 { transcriptExportError = nil } }
+        )) {
+            Button("OK") { transcriptExportError = nil }
+        } message: {
+            Text(transcriptExportError ?? "Erro desconhecido.")
         }
     }
 
@@ -733,6 +719,12 @@ struct MeetingDetailView: View {
                     ProgressView().controlSize(.small)
                     Text(msg).font(.caption).foregroundStyle(.secondary)
                 } else if !segments.isEmpty {
+                    Button { exportTranscript(segments) } label: {
+                        Label("Baixar .txt", systemImage: "arrow.down.doc")
+                    }
+                    .buttonStyle(.accessoryBar)
+                    .font(.caption)
+                    .help("Salvar a transcrição completa para usar em outros aplicativos")
                     Button { transcriber.transcribe(item, language: language) } label: {
                         Label("Refazer", systemImage: "arrow.clockwise")
                     }.buttonStyle(.accessoryBar).font(.caption)
@@ -769,6 +761,33 @@ struct MeetingDetailView: View {
             }
             .pickerStyle(.segmented).frame(width: 210)
             Spacer()
+        }
+    }
+
+    @MainActor
+    private func exportTranscript(_ segments: [MeetingSegment]) {
+        let panel = NSSavePanel()
+        panel.title = "Exportar transcrição"
+        panel.prompt = "Salvar"
+        panel.nameFieldStringValue = MeetingTranscriptExport.suggestedFileName(
+            title: item.displayTitle,
+            date: item.date
+        )
+        panel.allowedContentTypes = [.plainText]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        do {
+            let transcript = MeetingTranscriptExport.plainText(
+                title: item.displayTitle,
+                date: item.date,
+                segments: segments
+            )
+            try transcript.write(to: destination, atomically: true, encoding: .utf8)
+        } catch {
+            transcriptExportError = error.localizedDescription
         }
     }
 }
@@ -818,6 +837,57 @@ struct MeetingMirrorWaveform: View {
 }
 
 // MARK: - Live meters
+
+/// Observes only the clock, so the 4 Hz tick re-renders this label alone.
+@available(macOS 15, *)
+private struct MeetingElapsedLabel: View {
+    @ObservedObject var clock: MeetingClock
+
+    var body: some View {
+        Text(ReunioesView.elapsed(clock.elapsed))
+            .font(.system(.body, design: .monospaced).weight(.medium))
+            .foregroundStyle(AppColors.recording)
+    }
+}
+
+/// Observes only the meters, so the 16 Hz level updates re-render this card alone.
+@available(macOS 15, *)
+private struct MeetingChannelMeterCard: View {
+    enum Channel { case microphone, system }
+
+    let label: String
+    let symbol: String
+    let color: Color
+    let channel: Channel
+    let isRecording: Bool
+    @ObservedObject var meters: MeetingLiveMeters
+
+    private var levels: [Float] {
+        channel == .microphone ? meters.microphoneLevels : meters.systemLevels
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol).foregroundStyle(color)
+                Text(label).font(.system(size: 10.5, weight: .bold))
+                Spacer()
+                Text(isRecording ? "AO VIVO" : "AGUARDANDO SINAL")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(isRecording ? color : Color.secondary)
+            }
+            MeetingLiveWaveform(levels: levels, color: color)
+                .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 38)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.035)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(AppColors.borderSoft, lineWidth: 1))
+        }
+        .padding(9)
+        .background(RoundedRectangle(cornerRadius: 8).fill(AppColors.panel))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppColors.borderSoft, lineWidth: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Canal de áudio: \(label)")
+    }
+}
 
 @available(macOS 15, *)
 struct MeetingLiveTrackMeter: View {
