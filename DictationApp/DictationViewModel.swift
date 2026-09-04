@@ -140,15 +140,18 @@ class DictationViewModel: ObservableObject {
         transcribedText = ""
         errorMessage = nil
         wakeWordMonitor.stop()
+        // Show the HUD first: AVAudioEngine start takes 100-300 ms and the user should
+        // see feedback the instant the double-tap is recognized.
+        let cursor = NSEvent.mouseLocation
+        hud.show(state: .recording, near: cursor, translationBadge: translationMode.hudBadge)
         do {
             let recordingID = UUID().uuidString
             currentRecordingID = recordingID
             try recorder.startRecording()
             state = .recording
-            let cursor = NSEvent.mouseLocation
-            hud.show(state: .recording, near: cursor, translationBadge: translationMode.hudBadge)
             DictationDiagnostics.record("recording_started", fields: ["recording_id": recordingID])
         } catch {
+            hud.hide()
             currentRecordingID = nil
             NSLog("DictationApp: [VM] ERROR starting recording: %@", error.localizedDescription)
             errorMessage = "Microphone error: \(error.localizedDescription)"

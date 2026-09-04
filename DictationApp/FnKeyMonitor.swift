@@ -19,8 +19,12 @@ class FnKeyMonitor {
     }
 
     private var eventTap: CFMachPort?
+    private var tapRunLoop: CFRunLoop?
+    private var tapThread: Thread?
     private var watchdog: DispatchSourceTimer?
     private var fnGlobalMonitor: Any?
+    // The tap callback runs on its own thread; the NSEvent fallback runs on main.
+    private let stateLock = NSLock()
     private var lastKeyPressTime: TimeInterval = 0
     private var lastToggleFireTime: TimeInterval = 0
     private var recordingStartedAt: TimeInterval = 0
@@ -57,8 +61,20 @@ class FnKeyMonitor {
         NSLog("DictationApp: fn monitor started (key: %@)", doubleTapKey.displayName)
         eventTap = tap
         let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+
+        // Service the tap on a dedicated high-priority thread. On the main run loop, any
+        // busy stretch (SwiftUI layout, HUD creation, paste) delayed the callback and macOS
+        // disabled the tap by timeout, dropping fn/ESC presses until the watchdog re-enabled it.
+        let thread = Thread { [weak self] in
+            self?.tapRunLoop = CFRunLoopGetCurrent()
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            CFRunLoopRun()
+        }
+        thread.name = "com.dictation.fn-tap"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+        tapThread = thread
 
         // Fallback for FN specifically: some setups do not deliver FN reliably via CGEvent tap.
         fnGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
@@ -79,13 +95,18 @@ class FnKeyMonitor {
             CGEvent.tapEnable(tap: tap, enable: false)
             eventTap = nil
         }
+        if let loop = tapRunLoop {
+            CFRunLoopStop(loop)
+            tapRunLoop = nil
+        }
+        tapThread = nil
     }
 
     // MARK: - Watchdog
 
     private func startWatchdog() {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "com.dictation.tap-watchdog"))
-        timer.schedule(deadline: .now() + .milliseconds(300), repeating: .milliseconds(300))
+        timer.schedule(deadline: .now() + .milliseconds(200), repeating: .milliseconds(200))
         timer.setEventHandler { [weak self] in
             guard let tap = self?.eventTap else { return }
             if !CGEvent.tapIsEnabled(tap: tap) {
@@ -100,6 +121,16 @@ class FnKeyMonitor {
     // MARK: - Event handling
 
     private func handle(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // macOS delivers these when it disabled the tap; re-enable right away.
+        if event.type == .tapDisabledByTimeout || event.type == .tapDisabledByUserInput {
+            NSLog("DictationApp: event tap disabled (%d) — re-enabling", event.type.rawValue)
+            if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return Unmanaged.passUnretained(event)
+        }
+
+        stateLock.lock()
+        defer { stateLock.unlock() }
+
         // ESC: cancel recording
         if event.type == .keyDown && CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode)) == escKeyCode {
             NSLog("DictationApp: ESC keyDown received")
@@ -152,6 +183,8 @@ class FnKeyMonitor {
         guard doubleTapKey == .fn else { return }
         // 63 = fn/globe key
         guard event.keyCode == 63 else { return }
+        stateLock.lock()
+        defer { stateLock.unlock() }
         let keyDown = event.modifierFlags.contains(.function)
         if keyDown && !keyIsDown {
             keyIsDown = true
