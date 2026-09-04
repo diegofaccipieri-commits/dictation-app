@@ -72,9 +72,12 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
 struct MainHubView: View {
     @ObservedObject var router: MainHubRouter
-    @ObservedObject var viewModel: DictationViewModel
-    @ObservedObject var translationModel: TranslationWorkspaceViewModel
-    @ObservedObject var voiceMemosStore: VoiceMemosStore
+    // Plain references: the hub only forwards these models to the pages, which observe
+    // them themselves. Observing here re-rendered every page (all kept alive in the
+    // ZStack) on each keystroke in the translation editor.
+    let viewModel: DictationViewModel
+    let translationModel: TranslationWorkspaceViewModel
+    let voiceMemosStore: VoiceMemosStore
     let fnMonitor: FnKeyMonitor
     let onSelectFile: () -> Void
     let onSelectFolder: () -> Void

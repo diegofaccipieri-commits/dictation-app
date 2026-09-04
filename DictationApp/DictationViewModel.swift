@@ -25,7 +25,7 @@ class DictationViewModel: ObservableObject {
 
     private let recorder = AudioRecorder()
     private let transcriptionManager = TranscriptionManager()
-    private let translator = ClaudeTranslator()
+    let translator = ClaudeTranslator()  // shared with the manual translation workspace
     var finalTranscriber: FinalTranscriber { transcriptionManager.final_ }
     private let hud = DictationHUD()
     private let wakeWordMonitor = WakeWordMonitor()

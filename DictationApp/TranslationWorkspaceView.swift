@@ -9,9 +9,10 @@ final class TranslationWorkspaceViewModel: ObservableObject {
     @Published var isTranslating = false
     @Published var errorMessage: String?
 
-    private let translator = ClaudeTranslator()
+    private let translator: ClaudeTranslator
 
-    init() {
+    init(translator: ClaudeTranslator) {
+        self.translator = translator
         let saved = TranslationMode(
             rawValue: UserDefaults.standard.string(forKey: "manualTranslationMode") ?? ""
         )
@@ -25,6 +26,12 @@ final class TranslationWorkspaceViewModel: ObservableObject {
     func setMode(_ mode: TranslationMode) {
         selectedMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: "manualTranslationMode")
+        warmUp()
+    }
+
+    func warmUp() {
+        let mode = selectedMode
+        Task { await translator.warmUp(mode: mode) }
     }
 
     func translate() {
@@ -36,7 +43,14 @@ final class TranslationWorkspaceViewModel: ObservableObject {
 
         Task { [weak self] in
             guard let self else { return }
-            let translated = await translator.translate(source, mode: selectedMode)
+            let mode = selectedMode
+            var translated: String?
+            if #available(macOS 15.0, *), TranslationMode.directModes.contains(mode) {
+                translated = await AppleTranslator.shared.translate(source, mode: mode)
+            }
+            if translated == nil {
+                translated = await translator.translate(source, mode: mode)
+            }
             isTranslating = false
             if let translated {
                 outputText = translated
@@ -261,7 +275,9 @@ private struct AlignedTextEditor: NSViewRepresentable {
 
         textView.textColor = .labelColor
         textView.insertionPointColor = .labelColor
-        if textView.string != text {
+        // Edits typed in the view already match the binding; only push external changes.
+        if text != context.coordinator.lastText {
+            context.coordinator.lastText = text
             let selection = textView.selectedRange()
             textView.string = text
             textView.setSelectedRange(NSRange(
@@ -273,6 +289,7 @@ private struct AlignedTextEditor: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding private var text: String
+        var lastText = ""
 
         init(text: Binding<String>) {
             _text = text
@@ -280,7 +297,9 @@ private struct AlignedTextEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            text = textView.string
+            let current = textView.string
+            lastText = current
+            text = current
         }
     }
 }

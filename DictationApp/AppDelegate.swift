@@ -13,7 +13,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let fnMonitor = FnKeyMonitor()
     private let voiceMemosStore = VoiceMemosStore()
     private var mainWindow: NSWindow?
-    private let translationWorkspaceModel = TranslationWorkspaceViewModel()
+    private lazy var translationWorkspaceModel = TranslationWorkspaceViewModel(translator: viewModel.translator)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Accessory policy: app name visible in menu bar but never steals keyboard focus.
@@ -304,6 +304,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showTranslationWorkspace() {
         hubRouter.selection = .translation
+        translationWorkspaceModel.warmUp()
         showMainWindow()
     }
 
