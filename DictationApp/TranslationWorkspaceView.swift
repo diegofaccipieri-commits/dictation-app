@@ -8,6 +8,9 @@ final class TranslationWorkspaceViewModel: ObservableObject {
     @Published var selectedMode: TranslationMode
     @Published var isTranslating = false
     @Published var errorMessage: String?
+    // Source text of the last successful translation. Editing the input afterwards
+    // makes the output stale, so "Copiar tradução" is disabled until re-translated.
+    @Published private(set) var translatedSource: String?
 
     private let translator: ClaudeTranslator
 
@@ -21,6 +24,10 @@ final class TranslationWorkspaceViewModel: ObservableObject {
 
     var canTranslate: Bool {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isTranslating
+    }
+
+    var canCopy: Bool {
+        !outputText.isEmpty && translatedSource == inputText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func setMode(_ mode: TranslationMode) {
@@ -54,6 +61,7 @@ final class TranslationWorkspaceViewModel: ObservableObject {
             isTranslating = false
             if let translated {
                 outputText = translated
+                translatedSource = source
             } else {
                 errorMessage = "Não foi possível concluir a tradução. Verifique o Claude e tente novamente."
             }
@@ -61,7 +69,7 @@ final class TranslationWorkspaceViewModel: ObservableObject {
     }
 
     func copyOutput() {
-        guard !outputText.isEmpty else { return }
+        guard canCopy else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(outputText, forType: .string)
     }
@@ -69,6 +77,7 @@ final class TranslationWorkspaceViewModel: ObservableObject {
     func clear() {
         inputText = ""
         outputText = ""
+        translatedSource = nil
         errorMessage = nil
     }
 }
@@ -211,7 +220,7 @@ struct TranslationWorkspaceView: View {
             Button(action: viewModel.copyOutput) {
                 Label("Copiar tradução", systemImage: "doc.on.doc")
             }
-            .disabled(viewModel.outputText.isEmpty)
+            .disabled(!viewModel.canCopy)
 
             Button(action: viewModel.translate) {
                 if viewModel.isTranslating {
