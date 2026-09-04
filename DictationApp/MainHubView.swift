@@ -152,15 +152,17 @@ struct MainHubView: View {
         }
     }
 
+    // Only the selected page is mounted. Keeping every page alive (hidden via opacity)
+    // made SwiftUI lay out all seven pages on every hosting-view layout pass, which
+    // showed up as keystroke lag in the translation editor.
+    @ViewBuilder
     private func page<Content: View>(
         _ destination: HubDestination,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        content()
-            .opacity(router.selection == destination ? 1 : 0)
-            .allowsHitTesting(router.selection == destination)
-            .accessibilityHidden(router.selection != destination)
-            .zIndex(router.selection == destination ? 1 : 0)
+        if router.selection == destination {
+            content()
+        }
     }
 }
 

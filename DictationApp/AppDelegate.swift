@@ -76,7 +76,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 1080, height: 700)
         window.backgroundColor = AppColors.windowBGNS
-        window.contentViewController = NSHostingController(rootView: contentView)
+        let hosting = NSHostingController(rootView: contentView)
+        // The window already carries its own minSize; letting SwiftUI derive min/max
+        // size constraints re-measured the whole hub on every layout pass.
+        hosting.sizingOptions = []
+        window.contentViewController = hosting
         window.setContentSize(NSSize(width: 1180, height: 760))
         window.center()
         window.isReleasedWhenClosed = false
