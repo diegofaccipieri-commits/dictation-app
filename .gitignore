@@ -6,4 +6,3 @@ DerivedData/
 build-reunioes/
 ReunioesLogicTests/.build/
 .claude/
-whisper.cpp/
