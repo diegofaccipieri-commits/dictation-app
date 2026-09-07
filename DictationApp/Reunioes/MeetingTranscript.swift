@@ -31,6 +31,51 @@ enum MeetingTranscriptStore {
     }
 }
 
+/// Produces a portable UTF-8 transcript that can be imported or pasted into other apps.
+enum MeetingTranscriptExport {
+    static func plainText(title: String, date: Date, segments: [MeetingSegment]) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .long
+        dateFormatter.timeStyle = .short
+
+        let transcript = segments
+            .sorted { $0.start < $1.start }
+            .map { segment in
+                "[\(MeetingTrimLogic.label(segment.start))] \(segment.speaker)\n\(segment.text)"
+            }
+            .joined(separator: "\n\n")
+
+        return """
+        \(title)
+        \(dateFormatter.string(from: date))
+
+        \(transcript)
+        """
+    }
+
+    static func suggestedFileName(title: String, date: Date) -> String {
+        let invalid = CharacterSet(charactersIn: "/:\\?%*|\"<>")
+            .union(.newlines)
+            .union(.controlCharacters)
+        let cleanTitle = title
+            .components(separatedBy: invalid)
+            .joined(separator: " ")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let base: String
+        if cleanTitle.isEmpty {
+            let dateFormatter = DateFormatter()
+            dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+            dateFormatter.dateFormat = "yyyy-MM-dd_HHmm"
+            base = "reuniao-\(dateFormatter.string(from: date))"
+        } else {
+            base = cleanTitle
+        }
+        return "\(base)-transcricao.txt"
+    }
+}
+
 /// Groups fine-grained whisper segments into readable paragraphs (new block on speaker change,
 /// long pause, or length).
 enum MeetingGrouping {
