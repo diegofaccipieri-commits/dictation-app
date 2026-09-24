@@ -12,6 +12,8 @@ final class MeetingRecorder: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var permissions = MeetingPermissions()
     @Published private(set) var meetings: [MeetingItem] = []
+    @Published private(set) var isMicrophoneMuted = false
+    @Published private(set) var isSystemAudioMuted = false
 
     // High-frequency state lives in its own observable objects so that only the meter
     // and clock subviews re-render (~16 Hz per channel, 4 Hz clock). When these were
@@ -47,6 +49,36 @@ final class MeetingRecorder: ObservableObject {
     // MARK: Lifecycle
     func toggle() { Task { isRecording ? await stop() : await start() } }
 
+    func toggleMicrophoneMute() {
+        if isMicrophoneMuted {
+            isMicrophoneMuted = false
+            engine?.setMicrophoneMuted(false)
+            return
+        }
+
+        isMicrophoneMuted = true
+        engine?.setMicrophoneMuted(true)
+        if isSystemAudioMuted {
+            isSystemAudioMuted = false
+            engine?.setSystemMuted(false)
+        }
+    }
+
+    func toggleSystemAudioMute() {
+        if isSystemAudioMuted {
+            isSystemAudioMuted = false
+            engine?.setSystemMuted(false)
+            return
+        }
+
+        isSystemAudioMuted = true
+        engine?.setSystemMuted(true)
+        if isMicrophoneMuted {
+            isMicrophoneMuted = false
+            engine?.setMicrophoneMuted(false)
+        }
+    }
+
     func start() async {
         guard !isRecording else { return }
         refreshPermissions()
@@ -56,7 +88,9 @@ final class MeetingRecorder: ObservableObject {
         let micURL = MeetingPaths.audioDir.appendingPathComponent("meeting_\(stamp)_mic.m4a")
         let sysURL = MeetingPaths.audioDir.appendingPathComponent("meeting_\(stamp)_system.m4a")
 
-        let engine = MeetingCaptureEngine(micURL: micURL, systemURL: sysURL)
+        let engine = MeetingCaptureEngine(micURL: micURL, systemURL: sysURL,
+                                          microphoneMuted: isMicrophoneMuted,
+                                          systemMuted: isSystemAudioMuted)
         engine.onStop = { [weak self] error in
             guard let error else { return }
             Task { @MainActor in
@@ -110,6 +144,8 @@ final class MeetingRecorder: ObservableObject {
         await engine.stop()
         self.engine = nil
         isRecording = false
+        isMicrophoneMuted = false
+        isSystemAudioMuted = false
         meters.reset()
         loadMeetings()
     }

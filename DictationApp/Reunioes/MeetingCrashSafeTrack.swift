@@ -234,6 +234,15 @@ extension AVAudioPCMBuffer {
         return sqrt(sum / Float(frames * chCount))
     }
 
+    /// Clear an owned PCM buffer while retaining its format and duration.
+    func meetingSilence() {
+        let buffers = UnsafeMutableAudioBufferListPointer(mutableAudioBufferList)
+        for buffer in buffers {
+            guard let data = buffer.mData else { continue }
+            memset(data, 0, Int(buffer.mDataByteSize))
+        }
+    }
+
     /// Deep copy so the buffer survives after a realtime callback returns.
     func meetingCopy() -> AVAudioPCMBuffer? {
         guard let copy = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameLength) else { return nil }

@@ -53,7 +53,7 @@ struct ReunioesView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Reuniões").font(.system(size: 15, weight: .bold))
-                    Text("Sua voz e o áudio do Mac, gravados e transcritos no aparelho")
+                    Text("Escolha quais fontes entram em cada gravação")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -95,10 +95,15 @@ struct ReunioesView: View {
 
     private var persistentAudioChannels: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("CANAIS DE ÁUDIO")
-                .font(.system(size: 10, weight: .bold))
-                .kerning(0.7)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("CANAIS DESTA GRAVAÇÃO")
+                    .font(.system(size: 10, weight: .bold))
+                    .kerning(0.7)
+                    .foregroundStyle(.secondary)
+                Text("Você pode alterar enquanto grava; ao parar, os dois canais voltam a ficar ativos.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
 
             HStack(spacing: 10) {
                 MeetingChannelMeterCard(
@@ -107,6 +112,9 @@ struct ReunioesView: View {
                     color: AppColors.voice,
                     channel: .microphone,
                     isRecording: recorder.isRecording,
+                    isMuted: recorder.isMicrophoneMuted,
+                    isOtherMuted: recorder.isSystemAudioMuted,
+                    onToggleMute: recorder.toggleMicrophoneMute,
                     meters: recorder.meters
                 )
                 MeetingChannelMeterCard(
@@ -115,6 +123,9 @@ struct ReunioesView: View {
                     color: AppColors.others,
                     channel: .system,
                     isRecording: recorder.isRecording,
+                    isMuted: recorder.isSystemAudioMuted,
+                    isOtherMuted: recorder.isMicrophoneMuted,
+                    onToggleMute: recorder.toggleSystemAudioMute,
                     meters: recorder.meters
                 )
             }
@@ -860,10 +871,17 @@ private struct MeetingChannelMeterCard: View {
     let color: Color
     let channel: Channel
     let isRecording: Bool
+    let isMuted: Bool
+    let isOtherMuted: Bool
+    let onToggleMute: () -> Void
     @ObservedObject var meters: MeetingLiveMeters
 
     private var levels: [Float] {
         channel == .microphone ? meters.microphoneLevels : meters.systemLevels
+    }
+
+    private var mutedSymbol: String {
+        channel == .microphone ? "mic.slash.fill" : "speaker.slash.fill"
     }
 
     var body: some View {
@@ -872,11 +890,28 @@ private struct MeetingChannelMeterCard: View {
                 Image(systemName: symbol).foregroundStyle(color)
                 Text(label).font(.system(size: 10.5, weight: .bold))
                 Spacer()
-                Text(isRecording ? "AO VIVO" : "AGUARDANDO SINAL")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(isRecording ? color : Color.secondary)
+                Button(action: onToggleMute) {
+                    Label(isMuted ? "MUTADO" : (isRecording ? "AO VIVO" : "ATIVO"),
+                          systemImage: isMuted ? mutedSymbol : symbol)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(isMuted ? Color.secondary : color)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(isMuted ? Color.primary.opacity(0.06) : color.opacity(0.10)))
+                }
+                .buttonStyle(.plain)
+                .help(isMuted
+                      ? "Incluir esta fonte nesta gravação"
+                      : (isOtherMuted
+                         ? "Mutar esta fonte e ativar a outra"
+                         : "Mutar esta fonte nesta gravação"))
+                .accessibilityLabel(isMuted
+                                    ? "Ativar \(label) nesta gravação"
+                                    : (isOtherMuted
+                                       ? "Mutar \(label) e ativar o outro canal"
+                                       : "Mutar \(label) nesta gravação"))
             }
-            MeetingLiveWaveform(levels: levels, color: color)
+            MeetingLiveWaveform(levels: levels, color: isMuted ? .gray : color)
                 .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 38)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.035)))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(AppColors.borderSoft, lineWidth: 1))

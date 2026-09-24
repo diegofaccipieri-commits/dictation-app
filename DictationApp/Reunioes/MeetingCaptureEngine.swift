@@ -40,6 +40,8 @@ final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate, @u
     private var systemSampleRate: Double = 48_000
     private var isStopping = false
     private var isRestartingSystem = false
+    private var isSystemMuted: Bool
+    private let microphoneMuted: Bool
 
     var onStop: ((Error?) -> Void)?
     var onMicrophoneLevel: ((Float) -> Void)?
@@ -49,14 +51,24 @@ final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate, @u
     /// Audible system audio returned after an alert.
     var onSystemSilenceCleared: (() -> Void)?
 
-    init(micURL: URL, systemURL: URL) {
+    init(micURL: URL, systemURL: URL, microphoneMuted: Bool = false, systemMuted: Bool = false) {
         self.micURL = micURL
         self.systemURL = systemURL
+        self.isSystemMuted = systemMuted
+        self.microphoneMuted = microphoneMuted
         super.init()
     }
 
+    func setMicrophoneMuted(_ muted: Bool) {
+        queue.async { [weak self] in self?.micCapture?.setMuted(muted) }
+    }
+
+    func setSystemMuted(_ muted: Bool) {
+        queue.async { [weak self] in self?.isSystemMuted = muted }
+    }
+
     func start() async throws {
-        let mic = MeetingMicrophoneCapture(url: micURL)
+        let mic = MeetingMicrophoneCapture(url: micURL, isMuted: microphoneMuted)
         mic.onStop = { [weak self] error in self?.onStop?(error) }
         mic.onLevel = { [weak self] level in self?.onMicrophoneLevel?(level) }
         micCapture = mic
@@ -177,6 +189,7 @@ final class MeetingCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate, @u
             onSystemSilenceCleared?()
         }
 
+        if isSystemMuted { buffer.meetingSilence() }
         systemTrack?.write(buffer)
     }
 
@@ -249,8 +262,15 @@ final class MeetingMicrophoneCapture: @unchecked Sendable {
     var onStop: ((Error?) -> Void)?
     var onLevel: ((Float) -> Void)?
 
-    init(url: URL) {
+    private var isMuted: Bool
+
+    init(url: URL, isMuted: Bool = false) {
+        self.isMuted = isMuted
         self.track = MeetingCrashSafeTrack(finalURL: url, label: "mic")
+    }
+
+    func setMuted(_ muted: Bool) {
+        queue.sync { [weak self] in self?.isMuted = muted }
     }
 
     func start() throws {
@@ -267,6 +287,7 @@ final class MeetingMicrophoneCapture: @unchecked Sendable {
             guard let self, let copy = buffer.meetingCopy() else { return }
             self.queue.async {
                 self.onLevel?(copy.meetingRMS)
+                if self.isMuted { copy.meetingSilence() }
                 self.track?.write(copy)
             }
         }
