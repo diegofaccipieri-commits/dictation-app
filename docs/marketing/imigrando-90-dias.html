@@ -1,0 +1,418 @@
+<title>Imigrando 90 Dias</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#F4F6F8; --card:#FFFFFF; --ink:#16233B; --ink-2:#4A5872; --line:#D9DFE7;
+  --red:#B8122B; --red-soft:#FBE9EC; --navy-soft:#E6ECF5; --ok:#1F7A4D; --ok-soft:#E4F3EA; --warn:#9A6200; --warn-soft:#FBF1DD;
+  --display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body:"Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --paper:#0F1726; --card:#172238; --ink:#E7ECF4; --ink-2:#A6B2C6; --line:#2A3752;
+    --red:#FF6B7F; --red-soft:#3A1C26; --navy-soft:#1E2C47; --ok:#5FD39A; --ok-soft:#15302A; --warn:#F2C065; --warn-soft:#352A14;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --paper:#0F1726; --card:#172238; --ink:#E7ECF4; --ink-2:#A6B2C6; --line:#2A3752;
+  --red:#FF6B7F; --red-soft:#3A1C26; --navy-soft:#1E2C47; --ok:#5FD39A; --ok-soft:#15302A; --warn:#F2C065; --warn-soft:#352A14;
+}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.55;padding-inline:16px;padding-block:0 64px}
+.wrap{max-width:1080px;margin:0 auto}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:clamp(30px,5vw,48px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:26px;font-weight:700}
+h3{font-size:18px;font-weight:700}
+p{margin:0}
+.mono{font-family:var(--mono);font-size:13px}
+.label{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+header{padding-block:40px 24px;display:grid;gap:16px}
+.stamp{display:inline-flex;align-items:center;gap:10px;border:1.5px solid var(--red);color:var(--red);padding:6px 12px;border-radius:4px;font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;width:max-content;max-width:100%}
+.thesis{font-size:19px;color:var(--ink-2);max-width:68ch}
+.facts{display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:var(--navy-soft);color:var(--ink);border-radius:999px;padding:4px 12px;font-size:14px}
+nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--paper);border-bottom:1px solid var(--line);display:flex;gap:4px;overflow-x:auto;padding-block:8px}
+nav button{font:600 15px var(--body);color:var(--ink-2);background:none;border:0;padding:8px 14px;border-radius:6px;cursor:pointer;white-space:nowrap}
+nav button[aria-selected="true"]{color:var(--ink);background:var(--card);box-shadow:inset 0 -2px 0 var(--red)}
+nav button:focus-visible,.copy:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+section.tab{display:grid;gap:32px;padding-block:32px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:20px;display:grid;gap:10px;align-content:start}
+.box p,.box li{color:var(--ink-2)}
+.box.hl{border-color:var(--red)}
+ul,ol{margin:0;padding-left:20px;display:grid;gap:6px}
+.stack{display:grid;gap:14px}
+.tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;min-width:720px;font-size:14.5px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);font-weight:500;background:var(--navy-soft)}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;font-size:12px;font-family:var(--mono);padding:2px 8px;border-radius:4px;white-space:nowrap}
+.pill.yes{background:var(--ok-soft);color:var(--ok)}
+.pill.no{background:var(--red-soft);color:var(--red)}
+.pill.mid{background:var(--warn-soft);color:var(--warn)}
+.gap-list{display:grid;gap:12px;counter-reset:g}
+.gap{display:grid;grid-template-columns:40px 1fr;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px}
+.gap .n{font-family:var(--display);font-size:26px;color:var(--red);font-weight:700;line-height:1}
+.gap p{color:var(--ink-2)}
+.budget{display:grid;gap:10px}
+.bar-row{display:grid;grid-template-columns:minmax(120px,210px) 1fr 70px;gap:12px;align-items:center}
+.bar{height:14px;background:var(--navy-soft);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ink)}
+.bar i.r{background:var(--red)}
+.bar-row .v{font-family:var(--mono);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
+.timeline{display:grid;gap:16px}
+.month{display:grid;grid-template-columns:180px 1fr;gap:16px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:20px}
+.month .wk{display:grid;gap:10px}
+.wk div{display:grid;grid-template-columns:52px 1fr;gap:10px}
+.wk b{font-family:var(--mono);font-size:13px;color:var(--red);font-weight:500;padding-top:2px}
+.wk span{color:var(--ink-2)}
+.alert{background:var(--red-soft);border:1px solid var(--red);border-radius:8px;padding:16px 20px;display:grid;gap:6px}
+.alert strong{color:var(--red)}
+.checklist{list-style:none;padding:0}
+.checklist li{padding-left:28px;position:relative}
+.checklist li::before{content:"";position:absolute;left:0;top:4px;width:16px;height:16px;border:1.5px solid var(--ok);border-radius:3px}
+.script{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px;display:grid;gap:10px}
+.script header{padding:0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.lang{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:4px;background:var(--navy-soft)}
+.script dl{margin:0;display:grid;grid-template-columns:90px 1fr;gap:6px 12px}
+.script dt{font-family:var(--mono);font-size:12px;text-transform:uppercase;color:var(--ink-2);padding-top:3px}
+.script dd{margin:0}
+.msg{position:relative;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:14px 14px 14px;white-space:pre-wrap;font-size:15px}
+.copy{font:600 13px var(--body);border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:5px;padding:5px 10px;cursor:pointer}
+.copy.done{border-color:var(--ok);color:var(--ok)}
+.two{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.note{font-size:14px;color:var(--ink-2)}
+.sub{display:grid;gap:12px}
+@media (max-width:640px){
+  .month{grid-template-columns:1fr}
+  .bar-row{grid-template-columns:1fr 60px}
+  .bar-row .bar{grid-column:1/-1;grid-row:2}
+  .script dl{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="stamp">RCIC · Anna Muniz · R______ · Plano 28/09 a 27/12/2026</span>
+  <h1>A RCIC que fala a sua língua, para quem já está no Canadá</h1>
+  <p class="thesis">Benchmark de mais de 20 concorrentes em português e espanhol e plano de 90 dias para gerar consultas pagas pelo WhatsApp, com até CAD 2.000 por mês em mídia.</p>
+  <div class="facts">
+    <span class="chip">Objetivo: consultas pagas</span>
+    <span class="chip">Público: brasileiros e hispânicos no Canadá</span>
+    <span class="chip">Study Permit · RP · status</span>
+    <span class="chip">Conversão: WhatsApp</span>
+  </div>
+</header>
+
+<nav role="tablist" aria-label="Seções">
+  <button role="tab" id="t-resumo" aria-selected="true" data-tab="resumo">Resumo</button>
+  <button role="tab" id="t-bench" aria-selected="false" data-tab="bench">Benchmark</button>
+  <button role="tab" id="t-plano" aria-selected="false" data-tab="plano">Plano 90 dias</button>
+  <button role="tab" id="t-canais" aria-selected="false" data-tab="canais">Canais e verba</button>
+  <button role="tab" id="t-conteudo" aria-selected="false" data-tab="conteudo">Conteúdo pronto</button>
+  <button role="tab" id="t-regras" aria-selected="false" data-tab="regras">Compliance</button>
+</nav>
+
+<!-- RESUMO -->
+<section class="tab" id="resumo">
+  <div class="alert">
+    <strong>Ação desta semana: Google Ads muda a política em 05/10/2026</strong>
+    <p>Anúncios de "documentos e serviços do governo" (vistos, renovações) ficam restritos a fornecedores autorizados. Consultores com foco em consultoria seguem liberados. Todo anúncio e página de destino deve vender <b>consulta com RCIC</b>, nunca "tire seu visto" ou "renovação rápida".</p>
+  </div>
+  <div class="grid">
+    <div class="box hl">
+      <span class="label">O que descobrimos</span>
+      <h3>O mercado fala com quem está fora do Canadá</h3>
+      <p>Quase todo concorrente PT e ES produz "como imigrar em 2026" para quem ainda está no Brasil ou na América Latina. Quem já está dentro e vê o permit vencer é pouco atendido, e cerca de 1,8 milhão de permits vencem até o fim de 2026.</p>
+    </div>
+    <div class="box">
+      <span class="label">Nosso espaço</span>
+      <h3>Uma RCIC para PT e ES</h3>
+      <p>Não encontramos concorrente relevante que atenda brasileiros e hispânicos sob a mesma licenciada. Somado a estudo + imigração (Welcome Education), é um posicionamento que ninguém ocupa.</p>
+    </div>
+    <div class="box">
+      <span class="label">Como vamos captar</span>
+      <h3>Meta para WhatsApp, Google para quem procura</h3>
+      <p>Cerca de 55% da verba em anúncios Click-to-WhatsApp segmentados por idioma, 25–30% em Google Search PT/ES. TikTok e YouTube só orgânico. Vídeos curtos de "status em dia" puxam tudo.</p>
+    </div>
+  </div>
+  <div class="stack">
+    <h2>Metas do trimestre</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Indicador</th><th>Mês 1</th><th>Mês 2</th><th>Mês 3</th></tr></thead>
+      <tbody>
+        <tr><td>Conversas novas no WhatsApp</td><td class="num">60</td><td class="num">90</td><td class="num">120</td></tr>
+        <tr><td>Leads qualificados (passaram na triagem)</td><td class="num">25</td><td class="num">40</td><td class="num">55</td></tr>
+        <tr><td>Custo por lead qualificado</td><td class="num">≤ CAD 70</td><td class="num">≤ CAD 55</td><td class="num">≤ CAD 45</td></tr>
+        <tr><td>Consultas pagas com a RCIC</td><td class="num">8</td><td class="num">14</td><td class="num">20</td></tr>
+        <tr><td>Consulta → contrato</td><td class="num">30%</td><td class="num">35%</td><td class="num">40%</td></tr>
+        <tr><td>Avaliações novas no Google</td><td class="num">+8</td><td class="num">+10</td><td class="num">+12</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">As metas de custo partem de referências de mercado (a maioria dos EUA). Recalibrar com os números reais das semanas 2 e 3.</p>
+  </div>
+  <div class="stack">
+    <h2>Pendências para ativar</h2>
+    <ol>
+      <li>R-number da Anna (vai em todas as peças).</li>
+      <li>Preço final da consulta. Sugestão: CAD 150–180 por 45 min, com preço publicado.</li>
+      <li>Cidade ou cidades de atendimento presencial.</li>
+      <li>Número oficial de WhatsApp para os anúncios.</li>
+      <li>Um perfil bilíngue ou dois perfis (PT e ES) no Instagram e TikTok.</li>
+      <li>Acesso às contas Meta Business, Google Ads, Google Business Profile, TikTok e YouTube.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- BENCHMARK -->
+<section class="tab" id="bench" hidden>
+  <p class="note">Os sites, a Meta Ad Library e o Google Ads Transparency não puderam ser abertos diretamente nesta pesquisa. Os dados vêm de trechos indexados, com fonte no documento completo. Seguidores são ordem de grandeza. Anúncios pagos: nenhum verificado.</p>
+  <div class="stack">
+    <h2>Português</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Concorrente</th><th>RCIC</th><th>Base</th><th>Posicionamento</th><th>Preço</th><th>Audiência</th></tr></thead>
+      <tbody>
+        <tr><td><b>e-Visa Immigration</b></td><td><span class="pill yes">7 RCICs</span></td><td>Vancouver, Toronto, SP</td><td>Escala, "15–20 mil casos"</td><td class="num">CAD 64–119 (20 min)</td><td class="num">IG ~105 mil</td></tr>
+        <tr><td><b>Immi Canada</b></td><td><span class="pill yes">Sim</span></td><td>Vancouver, Toronto</td><td>"14 anos ajudando brasileiros", live semanal</td><td class="num">CAD 169 / 119</td><td class="num">IG ~65 mil</td></tr>
+        <tr><td><b>FutureCan / Kitty no Canadá</b></td><td><span class="pill yes">Sim</span></td><td>Oakville</td><td>Marca pessoal, "humanizado"</td><td>Não público</td><td class="num">IG ~60 mil</td></tr>
+        <tr><td><b>Terry Ferreira & Associates</b></td><td><span class="pill yes">Sim</span></td><td>Toronto</td><td>"Para quem já está aqui"</td><td>Não público</td><td>YouTube, blog SEO</td></tr>
+        <tr><td><b>Site Imigrar</b> (R. Alencar)</td><td><span class="pill yes">Sim</span></td><td>Foco Quebec</td><td>Portal mais antigo, lives e podcast</td><td>Não verificado</td><td>YouTube</td></tr>
+        <tr><td><b>Maritimes / Up / Medeiros / My Sweet Canada</b></td><td><span class="pill yes">Sim</span></td><td>NS, BC</td><td>Nichos regionais, SEO</td><td>Não verificado</td><td class="num">IG &lt; 5 mil</td></tr>
+        <tr><td><b>Daniel Braun / meegra</b></td><td><span class="pill no">Não</span></td><td>Brasil</td><td>Mentoria de infoproduto</td><td class="num">R$ 8 mil–71 mil</td><td class="num">IG ~742 mil</td></tr>
+        <tr><td><b>Canadá Diário</b></td><td><span class="pill no">Não</span></td><td>Vancouver</td><td>Vlog; recebe consultores</td><td>—</td><td class="num">YT ~500 mil</td></tr>
+        <tr><td><b>CI, STB, 3RA, Canada Intercambio</b></td><td><span class="pill mid">Terceirizam</span></td><td>BR e CA</td><td>"Estude, trabalhe e imigre"</td><td>Não verificado</td><td>Marcas grandes</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="stack">
+    <h2>Espanhol</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Concorrente</th><th>Licença</th><th>Base</th><th>Posicionamento</th><th>Preço</th><th>Audiência</th></tr></thead>
+      <tbody>
+        <tr><td><b>Immiland</b> (Eddy Ramírez)</td><td><span class="pill yes">LSO + CICC</span></td><td>Montreal/Ontário</td><td>Tudo em um; <b>consulta para quem está dentro</b></td><td>Não público</td><td class="num">IG ~241 mil</td></tr>
+        <tr><td><b>CI Canadá</b></td><td><span class="pill yes">RCICs</span></td><td>Montreal</td><td>Lives semanais "Micrófono Abierto"</td><td class="num">CAD 100–399</td><td class="num">IG ~12 mil</td></tr>
+        <tr><td><b>Angélica González-Blanco</b></td><td><span class="pill yes">LSO + CICC</span></td><td>Ontário</td><td>Autoridade, livro, tom crítico</td><td>Não público</td><td class="num">TikTok ~146 mil</td></tr>
+        <tr><td><b>Fernando Torres</b></td><td><span class="pill mid">Não confirmada</span></td><td>Vancouver</td><td>Realismo, casos difíceis</td><td>"Grátis" no WhatsApp</td><td>YouTube, TikTok</td></tr>
+        <tr><td><b>Alternativa Canadá</b></td><td><span class="pill yes">CICC</span></td><td>Toronto</td><td>Educação + TR to PR</td><td>Não público</td><td class="num">IG ~27 mil</td></tr>
+        <tr><td><b>Canada en Español</b></td><td><span class="pill yes">RCIC</span></td><td>Vancouver</td><td>Generalista</td><td class="num">CAD 75–120</td><td>Baixa</td></tr>
+        <tr><td><b>Immigrative / Camacho / Elige / Migratia</b></td><td><span class="pill yes">RCIC</span></td><td>Montreal, Toronto</td><td>Status, restauração, IRB</td><td>Não público</td><td class="num">IG &lt; 5 mil</td></tr>
+        <tr><td><b>Canada Es</b></td><td><span class="pill no">Agência</span></td><td>Remoto</td><td>Estudo como via</td><td>"Grátis"</td><td>YouTube</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="stack">
+    <h2>Lacunas que a Imigrando pode ocupar</h2>
+    <div class="gap-list">
+      <div class="gap"><span class="n">1</span><div><h3>Quem já está dentro e vê o status vencer</h3><p>Maintained status, restauração, PGWP, cônjuge sem open work permit. Poucos tratam isso de forma específica.</p></div></div>
+      <div class="gap"><span class="n">2</span><div><h3>Uma RCIC para português e espanhol</h3><p>Nenhum concorrente relevante atende os dois públicos com a mesma licenciada.</p></div></div>
+      <div class="gap"><span class="n">3</span><div><h3>Estudo e imigração sob o mesmo teto</h3><p>As agências terceirizam o RCIC. Welcome Education + Imigrando vai da matrícula até a RP.</p></div></div>
+      <div class="gap"><span class="n">4</span><div><h3>Ferramenta interativa em PT e ES</h3><p>Nenhum concorrente PT tem quiz de status ou calculadora própria.</p></div></div>
+      <div class="gap"><span class="n">5</span><div><h3>"Você fala sempre com a RCIC"</h3><p>Concorrentes grandes colocam agente ou vendedor na consulta de entrada.</p></div></div>
+      <div class="gap"><span class="n">6</span><div><h3>Preço publicado</h3><p>Só Immi, CI e Canada en Español mostram valores. A desconfiança com infoprodutos aumentou.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- PLANO -->
+<section class="tab" id="plano" hidden>
+  <div class="stack">
+    <h2>Funil</h2>
+    <div class="grid">
+      <div class="box"><span class="label">1 · Atração</span><p>Vídeos curtos em Reels, TikTok e Shorts, vídeos longos no YouTube, lives mensais, LinkedIn da Anna.</p></div>
+      <div class="box"><span class="label">2 · Captura</span><p>Anúncio Meta Click-to-WhatsApp em PT e ES e Google Search. Palavra-chave no CTA (STATUS, PLAN, CÔNJUGE).</p></div>
+      <div class="box"><span class="label">3 · Triagem gratuita</span><p>5 perguntas no WhatsApp, resposta em menos de 1h. Felipe Alf redige, Diego aprova.</p></div>
+      <div class="box hl"><span class="label">4 · Consulta paga</span><p>45 min direto com a Anna por vídeo. Depois opinion letter, proposta e contrato.</p></div>
+    </div>
+  </div>
+  <div class="stack">
+    <h2>Semana a semana</h2>
+    <div class="timeline">
+      <div class="month"><div><span class="label">Mês 1</span><h3>Fundação e testes</h3><p class="note">28/09 a 25/10</p></div>
+        <div class="wk">
+          <div><b>S1</b><span>Revisar anúncios e landing antes de 05/10. Verificação de anunciante no Google e na Meta. WhatsApp Business com etiquetas e respostas rápidas. Bio com R-number e link do CICC. Google Business Profile completo. Gravar os vídeos 1–8 em lote.</span></div>
+          <div><b>S2</b><span>Ligar Meta CTWA PT e ES (3 criativos cada) e Google Search. Publicar os 4 primeiros vídeos.</span></div>
+          <div><b>S3</b><span>YouTube longo PT: "Seu permit vence em 2026?". Carrossel sobre como verificar o consultor. Pedir avaliações a clientes recentes.</span></div>
+          <div><b>S4</b><span>Live ES "Micrófono Abierto". Pausar criativos com custo por conversa acima de CAD 20. Contatar 3 parceiros de comunidade.</span></div>
+        </div></div>
+      <div class="month"><div><span class="label">Mês 2</span><h3>Otimização</h3><p class="note">26/10 a 22/11</p></div>
+        <div class="wk">
+          <div><b>S5</b><span>Ligar retargeting. YouTube longo ES: "Residencia permanente desde adentro". Novos criativos com o melhor gancho do mês 1.</span></div>
+          <div><b>S6</b><span>Lançar o quiz "Seu status está em dia?". Live PT "Plantão da RCIC".</span></div>
+          <div><b>S7</b><span>Post pago com criador brasileiro ou latino, com disclosure. Palestra com organização comunitária.</span></div>
+          <div><b>S8</b><span>Revisão de custo por consulta paga por canal. Mover 10–20% da verba para o vencedor. YouTube longo PT sobre francês.</span></div>
+        </div></div>
+      <div class="month"><div><span class="label">Mês 3</span><h3>Escala e prova social</h3><p class="note">23/11 a 27/12</p></div>
+        <div class="wk">
+          <div><b>S9</b><span>Série "Casos reais" com consentimento por escrito. Live ES.</span></div>
+          <div><b>S10</b><span>Campanha "Planeje 2027" para permits que vencem no 1º semestre.</span></div>
+          <div><b>S11</b><span>YouTube longo ES sobre mestrado e Live PT. Meta de 30 avaliações no Google.</span></div>
+          <div><b>S12</b><span>"O que mudou na imigração em 2026" em PT e ES.</span></div>
+          <div><b>S13</b><span>Relatório dos 90 dias e plano do próximo trimestre.</span></div>
+        </div></div>
+    </div>
+  </div>
+  <div class="stack">
+    <h2>Pilares de conteúdo</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Pilar</th><th>Peso</th><th>Temas</th></tr></thead>
+      <tbody>
+        <tr><td><b>Status em dia</b></td><td class="num">35%</td><td>Maintained status (regra de maio/2025), PGWP (CLB 7/5, áreas congeladas em 2026), open work permit de cônjuge, restauração, recusas</td></tr>
+        <tr><td><b>Caminho para a RP</b></td><td class="num">25%</td><td>CEC e draws por categoria, francês, PNP por província, iniciativa de 33 mil trabalhadores</td></tr>
+        <tr><td><b>Proteção e confiança</b></td><td class="num">15%</td><td>Verificar RCIC no CICC, consultores fantasma, IMM 5476</td></tr>
+        <tr><td><b>Estudo estratégico</b></td><td class="num">15%</td><td>Mestrado e PhD isentos de PAL desde jan/2026, extensão na mesma DLI, troca de college</td></tr>
+        <tr><td><b>Bastidores e Anna</b></td><td class="num">10%</td><td>Rotina do escritório, perguntas reais anonimizadas</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="stack">
+    <h2>Rotina de gestão</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Quando</th><th>O quê</th><th>Quem</th></tr></thead>
+      <tbody>
+        <tr><td>Diário</td><td>Responder WhatsApp em menos de 1h e etiquetar a origem</td><td>Equipe</td></tr>
+        <tr><td>Segunda</td><td>Aprovar 4 vídeos e 2 carrosséis da semana</td><td>Diego e Anna</td></tr>
+        <tr><td>Quarta</td><td>Pausar anúncios com custo por conversa acima de CAD 20</td><td>Diego</td></tr>
+        <tr><td>Sexta</td><td>Planilha: conversas, qualificados, consultas e contratos por origem</td><td>Equipe</td></tr>
+        <tr><td>Fim do mês</td><td>Revisão e remanejamento de verba</td><td>Diego e Anna</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- CANAIS -->
+<section class="tab" id="canais" hidden>
+  <div class="stack">
+    <h2>Verba mensal · CAD 2.000</h2>
+    <div class="budget" id="budget"></div>
+    <p class="note">Valores do mês 1. No mês 3 o Meta sobe para CAD 1.300 e o Google cai para CAD 450, conforme o custo por consulta paga.</p>
+  </div>
+  <div class="stack">
+    <h2>Papel de cada canal</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Canal</th><th>Papel</th><th>Pago?</th><th>Frequência</th></tr></thead>
+      <tbody>
+        <tr><td><b>Instagram</b></td><td>Vitrine principal e base dos anúncios Meta</td><td><span class="pill yes">Sim</span></td><td>4 Reels + 2 carrosséis por semana, stories diários</td></tr>
+        <tr><td><b>TikTok</b></td><td>Alcance orgânico com o mesmo vídeo</td><td><span class="pill no">Só orgânico</span></td><td>4 por semana</td></tr>
+        <tr><td><b>YouTube</b></td><td>Shorts + vídeo longo quinzenal + live mensal por idioma</td><td><span class="pill mid">Retargeting</span></td><td>4 Shorts/sem</td></tr>
+        <tr><td><b>Google Search</b></td><td>Captura quem procura consultor em PT/ES</td><td><span class="pill yes">Sim</span></td><td>Sempre ligado</td></tr>
+        <tr><td><b>Google Business Profile</b></td><td>Avaliações e busca local</td><td><span class="pill no">Grátis</span></td><td>1 post por semana</td></tr>
+        <tr><td><b>LinkedIn (Anna)</b></td><td>Autoridade e parcerias B2B com colleges, empregadores e contadores</td><td><span class="pill no">Orgânico</span></td><td>2 posts por semana</td></tr>
+        <tr><td><b>Comunidade</b></td><td>Mídia e organizações brasileiras e latinas</td><td><span class="pill mid">Pontual</span></td><td>2 ações por mês</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="two">
+    <div class="box"><span class="label">Parceiros · brasileiros</span>
+      <ul><li>Brasil News, Jornal de Toronto, North News, RBTI</li><li>Conselho Brasileiro de Cidadania de Ontário</li><li>Brazil-Canada Chamber of Commerce</li><li>Grupos: Brasileiros em Toronto, Brasileiros no Canadá</li></ul></div>
+    <div class="box"><span class="label">Parceiros · hispânicos</span>
+      <ul><li>Correo Canadiense, Toronto Hispano, Magazine Latino</li><li>CHHA 1610 AM Voces Latinas, CHIN Radio</li><li>Centre for Spanish Speaking Peoples</li><li>Hispanic Canadian Heritage Council (Feria Latina)</li></ul></div>
+  </div>
+</section>
+
+<!-- CONTEUDO -->
+<section class="tab" id="conteudo" hidden>
+  <p class="note">Substitua R______ pelo número da Anna e [cidade] pela cidade de atendimento. Espanhol sem ¡ e ¿. Mensagens de WhatsApp no padrão Felipe Alf. O arquivo completo, com anúncios Google, carrosséis e quiz, está em docs/marketing/03-conteudo-pronto.md.</p>
+  <div class="stack">
+    <h2>Roteiros de vídeo curto</h2>
+    <div class="two" id="scripts"></div>
+  </div>
+  <div class="stack">
+    <h2>Anúncios Meta · Click-to-WhatsApp</h2>
+    <div class="two" id="ads"></div>
+  </div>
+  <div class="stack">
+    <h2>Mensagens de WhatsApp</h2>
+    <div class="two" id="wa"></div>
+  </div>
+</section>
+
+<!-- REGRAS -->
+<section class="tab" id="regras" hidden>
+  <div class="two">
+    <div class="box"><span class="label">CICC · Código de Conduta (SOR/2022-128)</span>
+      <ul class="checklist">
+        <li>Nome da Anna + R-number no início da peça, no idioma da peça</li>
+        <li>Link do registro público do CICC em toda peça escrita e na bio</li>
+        <li>Nenhuma garantia de aprovação ou resultado</li>
+        <li>Nada que sugira vínculo com o governo</li>
+        <li>Depoimentos só reais, com consentimento por escrito arquivado</li>
+      </ul></div>
+    <div class="box"><span class="label">Plataformas</span>
+      <ul class="checklist">
+        <li>Meta: o anúncio não pode insinuar o status de quem vê. "Seu visto está vencendo?" é proibido</li>
+        <li>Meta: segmentar por idioma, nunca por etnia</li>
+        <li>Google: vender consultoria com RCIC, não obtenção de documento (política de 05/10/2026)</li>
+        <li>TikTok: anúncios de serviço de imigração não são aceitos. Só orgânico</li>
+        <li>Parcerias com criadores sempre com disclosure</li>
+      </ul></div>
+  </div>
+  <div class="box"><span class="label">Rodapé para legendas</span>
+    <div class="msg" id="foot-pt">Anna Muniz, RCIC R______. Verifique a licença em register.college-ic.ca. Este conteúdo é informativo e não substitui uma consulta. Nenhum resultado é garantido.</div>
+    <div class="msg" id="foot-es">Anna Muniz, RCIC R______. Verifica la licencia en register.college-ic.ca. Este contenido es informativo y no reemplaza una consulta. Ningún resultado está garantizado.</div>
+  </div>
+  <p class="note">Fontes: laws-lois.justice.gc.ca (SOR/2022-128) · support.google.com/adspolicy/answer/17260489 · transparency.meta.com (personal attributes) · ads.tiktok.com (other products and services).</p>
+</section>
+</div>
+
+<script>
+const budget=[["Meta CTWA · português",600,"r"],["Meta CTWA · espanhol",500,"r"],["Google Search PT/ES/EN",600,""],["Retargeting Meta",200,""],["Teste com criador",100,""]];
+document.getElementById("budget").innerHTML=budget.map(([n,v,c])=>`<div class="bar-row"><span>${n}</span><div class="bar"><i class="${c}" style="width:${v/600*100}%"></i></div><span class="v">CAD ${v}</span></div>`).join("");
+
+const scripts=[
+ ["PT","Não aplique duas vezes","Se o seu pedido de extensão for recusado, não faça isso.","Desde maio de 2025, se o primeiro pedido for recusado e você mandar um segundo depois do permit vencer, o segundo também é recusado e você perde o status. Às vezes o caminho é restauração, às vezes outro permit.","Manda STATUS no nosso WhatsApp"],
+ ["PT","Open work permit de cônjuge","Seu cônjuge ainda consegue open work permit em 2026? Depende de uma coisa.","Cônjuge de estudante só em mestrado de 16 meses ou mais, doutorado ou alguns cursos profissionais. Cônjuge de trabalhador só se a ocupação for TEER 0 ou 1, ou algumas TEER 2 e 3, com 16 meses ou mais de permit.","Escreve CÔNJUGE no WhatsApp"],
+ ["PT","Verifique antes de pagar","Leva 30 segundos para saber se o seu consultor pode cuidar do seu processo.","Entra em register.college-ic.ca e busca o nome ou o número R. Se não estiver ativo, não pode te representar por dinheiro. Gravar a tela buscando Anna Muniz.","Salva e manda para quem está contratando alguém"],
+ ["PT","Francês como atalho","Os sorteios de francês tiveram notas de corte bem abaixo dos gerais.","Em 2026 ficaram entre 380 e 410 pontos, contra cerca de 508 no CEC. O governo quer 10,5% de imigração francófona fora do Quebec até 2028. Confirmar os números atuais antes de gravar.","Escreve FRANCÊS no WhatsApp"],
+ ["ES","No apliques dos veces","Si te rechazaron la extensión, no hagas esto.","Desde mayo de 2025, si tu primera solicitud es rechazada y envías otra después de que venció tu permiso, también se rechaza y pierdes el estatus. A veces el camino es la restauración.","Escríbenos ESTATUS por WhatsApp"],
+ ["ES","El consultor fantasma","En 2025 el gobierno investigó más de 95 mil casos sospechosos de fraude.","El consultor fantasma cobra por adelantado y no aparece en tu solicitud. Tú pagas las consecuencias, con posible prohibición de 5 años. Verifica en register.college-ic.ca y pide el formulario IMM 5476 firmado.","Escríbenos SEGUNDA OPINIÓN"],
+ ["ES","Residencia desde adentro","Ya trabajas en Canadá. Estos caminos casi nadie los revisa.","Canadian Experience Class, programas provinciales para tu ocupación, la iniciativa de 33 mil trabajadores en comunidades pequeñas y el francés.","Escríbenos PLAN"],
+ ["ES","Maestría sin PAL","Desde enero de 2026 algo cambió para quien quiere hacer una maestría.","Maestría o doctorado en institución pública ya no necesita la carta provincial (PAL) ni entra en el límite. La extensión en la misma institución y nivel tampoco.","Escríbenos MAESTRÍA"]
+];
+document.getElementById("scripts").innerHTML=scripts.map(([l,t,h,c,cta],i)=>`<article class="script"><header><h3>${t}</h3><span class="lang">${l}</span></header><dl><dt>Gancho</dt><dd>${h}</dd><dt>Conteúdo</dt><dd>${c}</dd><dt>CTA</dt><dd>${cta}</dd></dl></article>`).join("");
+
+const ads=[
+ ["PT","Consultoria em português","Anna Muniz, consultora de imigração licenciada (RCIC R______). Consultoria em português para extensões de permissão de estudo e trabalho no Canadá. Você fala direto com a RCIC. Licença verificável em register.college-ic.ca"],
+ ["PT","Seu plano para a RP","Anna Muniz, RCIC R______. Planejamento de residência permanente para quem estuda ou trabalha no Canadá: Express Entry, programas provinciais e francês. Atendimento em português. Registro em register.college-ic.ca"],
+ ["PT","Estudo + imigração","Anna Muniz, RCIC R______. Estudo e imigração com a mesma equipe: da escolha do programa ao pedido de permissão. Welcome Education + Imigrando. Registro em register.college-ic.ca"],
+ ["ES","Asesoría en español","Anna Muniz, consultora de inmigración licenciada (RCIC R______). Asesoría en español para extensiones de permisos de estudio y trabajo en Canadá. Hablas directamente con la RCIC. Verifica en register.college-ic.ca"],
+ ["ES","Tu plan para la RP","Anna Muniz, RCIC R______. Planificación de residencia permanente para quienes estudian o trabajan en Canadá. Express Entry, programas provinciales y francés. Verifica en register.college-ic.ca"],
+ ["ES","Consultora licenciada","Anna Muniz, RCIC R______. Protege tu proceso. Trabaja con una consultora licenciada que firma tu solicitud como representante. Verifica en register.college-ic.ca"]
+];
+const wa=[
+ ["PT","Boas-vindas","Oi, tudo bem? Aqui é da Imigrando. Nossa consultora licenciada é a Anna Muniz, RCIC R______. Para te ajudar melhor me conta rapidinho qual é a sua situação hoje no Canadá e o que você quer resolver"],
+ ["ES","Bienvenida","Hola, cómo estás? Te escribe el equipo de Imigrando. Nuestra consultora licenciada es Anna Muniz, RCIC R______. Para ayudarte mejor cuéntame un poco cuál es tu situación hoy en Canadá y qué quieres resolver"],
+ ["PT","Triagem","Obrigado por explicar. Para eu passar o seu caso para a Anna preciso de cinco informações rápidas\n1. Qual é o seu status hoje (estudante, trabalhador, visitante ou outro)\n2. Quando vence o seu permit\n3. Você já teve algum pedido recusado\n4. Você tem teste de inglês ou francês\n5. Está no Canadá com cônjuge ou filhos"],
+ ["ES","Triaje","Gracias por contarme. Para pasar tu caso a Anna necesito cinco datos rápidos\n1. Cuál es tu estatus hoy (estudiante, trabajador, visitante u otro)\n2. Cuándo vence tu permiso\n3. Alguna vez te rechazaron una solicitud\n4. Tienes examen de inglés o francés\n5. Estás en Canadá con pareja o hijos"],
+ ["PT","Convite para consulta","Pelo que você contou vale uma conversa com a Anna para montar o próximo passo com segurança. A consulta é de 45 minutos direto com ela por vídeo e custa CAD ___. Tenho horários na [dia] e na [dia]. Qual fica melhor para você"],
+ ["ES","Invitación a consulta","Por lo que me cuentas vale la pena una conversación con Anna para definir el próximo paso con seguridad. La consulta es de 45 minutos directamente con ella por video y cuesta CAD ___. Tengo horarios el [día] y el [día]. Cuál te queda mejor"],
+ ["PT","Follow-up 48h","Oi [Nome], passando para saber se você conseguiu ver os horários. Se o seu permit vence nos próximos meses vale não deixar para a última hora. Qualquer dúvida é só me chamar"],
+ ["ES","Seguimiento 48h","Hola [Nombre], paso para saber si pudiste ver los horarios. Si tu permiso vence en los próximos meses vale la pena no dejarlo para último momento. Cualquier duda me escribes"]
+];
+const card=([l,t,txt],k)=>`<article class="script"><header><h3>${t}</h3><span class="lang">${l}</span><button class="copy" type="button" data-k="${k}">Copiar</button></header><div class="msg" id="${k}">${txt}</div></article>`;
+document.getElementById("ads").innerHTML=ads.map((a,i)=>card(a,"ad"+i)).join("");
+document.getElementById("wa").innerHTML=wa.map((a,i)=>card(a,"wa"+i)).join("");
+
+document.addEventListener("click",e=>{
+  const b=e.target.closest(".copy"); if(!b) return;
+  const el=document.getElementById(b.dataset.k); const txt=el.textContent;
+  const ok=()=>{b.textContent="Copiado";b.classList.add("done");setTimeout(()=>{b.textContent="Copiar";b.classList.remove("done")},1600)};
+  const fallback=()=>{const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent="Selecionado, use Ctrl+C"};
+  try{navigator.clipboard.writeText(txt).then(ok,fallback)}catch(_){fallback()}
+});
+
+const tabs=[...document.querySelectorAll("nav button")];
+function show(id){tabs.forEach(t=>t.setAttribute("aria-selected",t.dataset.tab===id));document.querySelectorAll("section.tab").forEach(s=>s.hidden=s.id!==id);try{localStorage.setItem("tab",id)}catch(_){}}
+tabs.forEach(t=>t.addEventListener("click",()=>show(t.dataset.tab)));
+let start="resumo";const h=location.hash.slice(1);
+if(tabs.some(t=>t.dataset.tab===h))start=h;else{try{const s=localStorage.getItem("tab");if(s&&tabs.some(t=>t.dataset.tab===s))start=s}catch(_){}}
+show(start);
+</script>
