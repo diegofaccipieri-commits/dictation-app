@@ -357,9 +357,20 @@ final class SilenceGate {
     private var hangoverLeft = 0
     private var preroll: [Float] = []
     private(set) var droppedSamples = 0
+    // The GPU cools within seconds of idling and the next model step then takes ~1.5 s instead of
+    // 0.075 s. Passing the first 0.17 s runs that slow step while the user starts talking, and one
+    // 80 ms block per second of silence keeps it warm through pauses.
+    private var primeLeft = 2_720
+    private var silentSinceTick = 0
+    private let tickInterval = 16_000
+    private let tickSamples = 1_280
 
     func process(_ chunk: [Float]) -> [Float] {
         guard !chunk.isEmpty else { return [] }
+        if primeLeft > 0 {
+            primeLeft -= chunk.count
+            return chunk
+        }
         var sum: Float = 0
         for s in chunk { sum += s * s }
         let rms = (sum / Float(chunk.count)).squareRoot()
@@ -369,21 +380,30 @@ final class SilenceGate {
         }
         if rms >= threshold {
             hangoverLeft = hangoverSamples
+            silentSinceTick = 0
             let out = preroll + chunk
             preroll.removeAll(keepingCapacity: true)
             return out
         }
         if hangoverLeft > 0 {
             hangoverLeft -= chunk.count
+            silentSinceTick = 0
             return chunk
         }
         preroll.append(contentsOf: chunk)
+        silentSinceTick += chunk.count
+        var tick: [Float] = []
+        if silentSinceTick >= tickInterval && preroll.count >= tickSamples {
+            silentSinceTick = 0
+            tick = Array(preroll.prefix(tickSamples))
+            preroll.removeFirst(tickSamples)
+        }
         if preroll.count > prerollSamples {
             let excess = preroll.count - prerollSamples
             droppedSamples += excess
             preroll.removeFirst(excess)
         }
-        return []
+        return tick
     }
 }
 
