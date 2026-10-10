@@ -16,14 +16,21 @@ private enum HUDPhase {
     case idle
 }
 
+// Live transcript shown beside the recording indicator while Voxtral streams.
+final class HUDLiveText: ObservableObject {
+    @Published var text = ""
+}
+
 // Floating HUD near the cursor — shows recording state and phase timer.
 class DictationHUD {
     private var panel: NSPanel?
+    private let liveText = HUDLiveText()
     private var anchorPoint: NSPoint = .zero
     private var phaseStart: Date = Date()
     private var translationBadge: String?
 
     func show(state: RecordingState, near point: NSPoint, translationBadge: String? = nil) {
+        if UserDefaults.standard.bool(forKey: "debugHideHUD") { return }
         anchorPoint = point
         phaseStart = Date()
         self.translationBadge = translationBadge
@@ -49,6 +56,30 @@ class DictationHUD {
         let size = NSSize(width: width, height: 48)
         let origin = clampToScreen(NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - 76), size: size)
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+
+    /// Switch the recording HUD to the live layout: indicator on the left, streaming text beside it.
+    func showLive() {
+        guard let panel, panel.isVisible else { return }
+        liveText.text = ""
+        let size = NSSize(width: 470, height: 112)
+        panel.contentViewController = NSHostingController(
+            rootView: HUDLiveView(
+                live: liveText,
+                startDate: phaseStart,
+                translationBadge: translationBadge,
+                indicatorSize: NSSize(width: 80, height: 112)
+            )
+        )
+        let origin = clampToScreen(
+            NSPoint(x: anchorPoint.x + 16, y: anchorPoint.y - size.height - 8),
+            size: size
+        )
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+
+    func updateLive(_ text: String) {
+        liveText.text = text
     }
 
     func showTranslating() {
@@ -140,6 +171,41 @@ private struct HUDTextView: View {
                     .stroke(HUDStyle.darkStroke, lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.28), radius: 6, y: 2)
+    }
+}
+
+private struct HUDLiveView: View {
+    @ObservedObject var live: HUDLiveText
+    let startDate: Date
+    let translationBadge: String?
+    let indicatorSize: NSSize
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 4) {
+            HUDView(phase: .recording, startDate: startDate, translationBadge: translationBadge, size: indicatorSize)
+            Text(displayText)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(live.text.isEmpty ? .white.opacity(0.5) : .white)
+                .lineLimit(3)
+                .truncationMode(.head)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(HUDStyle.darkBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(HUDStyle.darkStroke, lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.28), radius: 6, y: 2)
+        }
+    }
+
+    private var displayText: String {
+        let text = live.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { return "Ouvindo…" }
+        return text.count > 220 ? "…" + String(text.suffix(219)) : text
     }
 }
 

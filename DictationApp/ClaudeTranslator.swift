@@ -32,7 +32,7 @@ actor ClaudeTranslator {
 
     // LAWYER produces legal correspondence, keep the stronger model there.
     private func model(for mode: TranslationMode) -> String {
-        mode == .lawyer ? "sonnet" : "haiku"
+        mode == .lawyer ? "claude-sonnet-5-5" : "claude-haiku-5-5"
     }
 
     // Boot the CLI ahead of time so the first translation is already warm.

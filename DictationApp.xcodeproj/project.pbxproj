@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		0532F7CC9BFAB959362B756A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8AD2F1132A9EEC08366D2A4B /* WhisperKit */; };
+		079CE5CCBA0C8363649D896A /* voxtral-server in Resources */ = {isa = PBXBuildFile; fileRef = E13E4D5FA52965A9B630658E /* voxtral-server */; };
+		082F48B5D8843EA20AE2F4AA /* KeyboardTyper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A33D8321BA2B7508B45F0F2 /* KeyboardTyper.swift */; };
 		09DABF8BAD1B6401585EF977 /* TranscriptionLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8CBD8D8B857BB14058EFB27 /* TranscriptionLanguage.swift */; };
 		0ACB384166C92BC787992471 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 4D9CF33863B95BC063C6DA7D /* KeyboardShortcuts */; };
 		0B553E7CF9C39C4D655C1108 /* MeetingTrimLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96B0C571135964650738893 /* MeetingTrimLogic.swift */; };
@@ -30,6 +32,7 @@
 		71714378D3175242330FCF8B /* AudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD160A3954ABFDA66CDBBD2B /* AudioDecoder.swift */; };
 		77B07A1D97940600830653F2 /* SystemAudioTapCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55D265BD9F9939A545C5B4E5 /* SystemAudioTapCapture.swift */; };
 		78718CE7AF4C50710384BF45 /* DictationHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADE0027A68F764D4EA91A6D /* DictationHUD.swift */; };
+		7C479030986A55D433A944D1 /* VoxtralServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC13DDD336B2EB3C1489597 /* VoxtralServer.swift */; };
 		7F946899CFC4B86993E709FD /* BatchTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E49A420A4D311440C56A58 /* BatchTranscriber.swift */; };
 		812119C11B13B90BFE27BF83 /* WakeWordMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */; };
 		82CB4434A7ACD8C1F8E5F92A /* FnKeyMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01109107F1370EA626F4B828 /* FnKeyMonitor.swift */; };
@@ -40,6 +43,7 @@
 		914EA6A02DC3169EC75C21A6 /* DictationApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888388B0B045E88481C1043B /* DictationApp.swift */; };
 		9E3581F6A34F8C41C9A898C3 /* ClaudeTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3309DCEE8D721DB76A576EA /* ClaudeTranslator.swift */; };
 		A27AF33A1FB87FD4D02A53E9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9A88AA362405D41E5E904895 /* Assets.xcassets */; };
+		A3EBC3D4C19E835D0F944DCB /* libomp.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 1378298A5971FC571A227C54 /* libomp.dylib */; };
 		BB1DDB4AF3C44BE3E97D2B22 /* VoiceMemosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36D9DB4BA4552E27E013B78 /* VoiceMemosView.swift */; };
 		BE53655D197466EE90B467EF /* whisper-server in Resources */ = {isa = PBXBuildFile; fileRef = 0A60B3C4BF43458FCE306C18 /* whisper-server */; };
 		BE836B53C2094B1A0CC0858E /* DoubleTapKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6B00235D9707085A43CA292 /* DoubleTapKey.swift */; };
@@ -63,8 +67,10 @@
 		0A60B3C4BF43458FCE306C18 /* whisper-server */ = {isa = PBXFileReference; path = "whisper-server"; sourceTree = "<group>"; };
 		0F66D4D03048EC0DB318D6C6 /* TranslationWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationWorkspaceView.swift; sourceTree = "<group>"; };
 		136F800BA7DE08E3D2BEE869 /* whisper-cli */ = {isa = PBXFileReference; path = "whisper-cli"; sourceTree = "<group>"; };
+		1378298A5971FC571A227C54 /* libomp.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libomp.dylib; sourceTree = "<group>"; };
 		1ADE0027A68F764D4EA91A6D /* DictationHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationHUD.swift; sourceTree = "<group>"; };
 		1EA0D483EDD3BF84A72A5447 /* MeetingCaptureEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingCaptureEngine.swift; sourceTree = "<group>"; };
+		2A33D8321BA2B7508B45F0F2 /* KeyboardTyper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardTyper.swift; sourceTree = "<group>"; };
 		2BEDE44D29C8252B3214EAD7 /* DictationApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DictationApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2F6D118CAE25F92BB0986AFF /* MeetingPermissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPermissions.swift; sourceTree = "<group>"; };
 		30EAB6BEAB3CE8B50A40C939 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -82,6 +88,7 @@
 		9A3F068373E458E92F60AEDD /* ReunioesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReunioesView.swift; sourceTree = "<group>"; };
 		9A88AA362405D41E5E904895 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9CC2F41DD1EC09478B0C90CC /* DiarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiarizationService.swift; sourceTree = "<group>"; };
+		9FC13DDD336B2EB3C1489597 /* VoxtralServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoxtralServer.swift; sourceTree = "<group>"; };
 		A027ADED4AC4EE5711AEFC35 /* MeetingPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPaths.swift; sourceTree = "<group>"; };
 		A53548C9CE9802915382F99E /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		ABDE54AB2A7F063EC484D388 /* WhisperCpp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperCpp.swift; sourceTree = "<group>"; };
@@ -97,6 +104,7 @@
 		D65E4E7FDAB6396F033F4D83 /* MeetingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingsStore.swift; sourceTree = "<group>"; };
 		D7A7A1167452596827FECC61 /* TranslationMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationMode.swift; sourceTree = "<group>"; };
 		DB102E42FF23769EC4757F28 /* MeetingWaveform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingWaveform.swift; sourceTree = "<group>"; };
+		E13E4D5FA52965A9B630658E /* voxtral-server */ = {isa = PBXFileReference; path = "voxtral-server"; sourceTree = "<group>"; };
 		E36D9DB4BA4552E27E013B78 /* VoiceMemosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMemosView.swift; sourceTree = "<group>"; };
 		E3F4B580E7A10224C9DD02D1 /* VoiceMemosLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMemosLibrary.swift; sourceTree = "<group>"; };
 		EB6385DFFED4A2694E7EDC01 /* MainHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainHubView.swift; sourceTree = "<group>"; };
@@ -146,6 +154,8 @@
 				01109107F1370EA626F4B828 /* FnKeyMonitor.swift */,
 				6C601E327CB04D74E5AD1C9A /* HotkeyManager.swift */,
 				AC198E3C20403986C286C56F /* Info.plist */,
+				2A33D8321BA2B7508B45F0F2 /* KeyboardTyper.swift */,
+				1378298A5971FC571A227C54 /* libomp.dylib */,
 				EB6385DFFED4A2694E7EDC01 /* MainHubView.swift */,
 				47AD1A1B80865C41AF19DFF8 /* RecordingState.swift */,
 				8753F3A52A7EB8E37D1BE41B /* Theme.swift */,
@@ -156,6 +166,8 @@
 				A53548C9CE9802915382F99E /* UpdateChecker.swift */,
 				E3F4B580E7A10224C9DD02D1 /* VoiceMemosLibrary.swift */,
 				E36D9DB4BA4552E27E013B78 /* VoiceMemosView.swift */,
+				E13E4D5FA52965A9B630658E /* voxtral-server */,
+				9FC13DDD336B2EB3C1489597 /* VoxtralServer.swift */,
 				C980F7E3EF593C7A5DF1B794 /* WakeWordMonitor.swift */,
 				136F800BA7DE08E3D2BEE869 /* whisper-cli */,
 				0A60B3C4BF43458FCE306C18 /* whisper-server */,
@@ -261,6 +273,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A27AF33A1FB87FD4D02A53E9 /* Assets.xcassets in Resources */,
+				A3EBC3D4C19E835D0F944DCB /* libomp.dylib in Resources */,
+				079CE5CCBA0C8363649D896A /* voxtral-server in Resources */,
 				3475A7F8200C151E6046074E /* whisper-cli in Resources */,
 				BE53655D197466EE90B467EF /* whisper-server in Resources */,
 			);
@@ -287,6 +301,7 @@
 				BE836B53C2094B1A0CC0858E /* DoubleTapKey.swift in Sources */,
 				82CB4434A7ACD8C1F8E5F92A /* FnKeyMonitor.swift in Sources */,
 				5C3A024A857271A7DB5CFCFB /* HotkeyManager.swift in Sources */,
+				082F48B5D8843EA20AE2F4AA /* KeyboardTyper.swift in Sources */,
 				69F59C85A2F3A76D1906FA8F /* MainHubView.swift in Sources */,
 				226D7AE92484E4368E84E3F1 /* MeetingAlertPanel.swift in Sources */,
 				896BAADA7E97C26133419CD5 /* MeetingCaptureEngine.swift in Sources */,
@@ -311,6 +326,7 @@
 				184CC3F69A72710B50146F3F /* UpdateChecker.swift in Sources */,
 				91499FA4517B83261C152CAA /* VoiceMemosLibrary.swift in Sources */,
 				BB1DDB4AF3C44BE3E97D2B22 /* VoiceMemosView.swift in Sources */,
+				7C479030986A55D433A944D1 /* VoxtralServer.swift in Sources */,
 				812119C11B13B90BFE27BF83 /* WakeWordMonitor.swift in Sources */,
 				27EAC0BF7D7E0B7639CF270B /* WhisperCpp.swift in Sources */,
 				E0673111C04A99474760C52B /* WhisperModel.swift in Sources */,

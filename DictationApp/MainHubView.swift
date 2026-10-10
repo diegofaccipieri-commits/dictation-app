@@ -606,6 +606,32 @@ private struct HubSettingsView: View {
                 }
 
                 settingsGroup("DITADO") {
+                    settingsRow("Motor do ditado") {
+                        Picker("", selection: Binding(
+                            get: { viewModel.dictationEngine },
+                            set: { viewModel.setDictationEngine($0) }
+                        )) {
+                            ForEach(DictationEngine.allCases) { engine in
+                                Text(engine.displayName).tag(engine)
+                            }
+                        }
+                        .pickerStyle(.segmented).frame(width: 260)
+                    }
+                    Text(voxtralStatus)
+                        .font(.caption).foregroundStyle(.secondary).padding(.top, 2)
+                    if viewModel.dictationEngine == .voxtral {
+                        settingsDivider
+                        settingsRow("Digitar direto no cursor") {
+                            Toggle("", isOn: Binding(
+                                get: { viewModel.typesLive },
+                                set: { viewModel.setTypesLive($0) }
+                            ))
+                            .toggleStyle(.switch)
+                        }
+                        Text("Desligado: o texto aparece num balão e é colado ao terminar. Comandos como “vírgula” só funcionam desligado.")
+                            .font(.caption).foregroundStyle(.secondary).padding(.top, 2)
+                    }
+                    settingsDivider
                     settingsRow("Idioma de transcrição") {
                         Picker("", selection: Binding(
                             get: { viewModel.transcriptionLanguage },
@@ -700,6 +726,16 @@ private struct HubSettingsView: View {
     }
 
     private var settingsDivider: some View { Divider().overlay(AppColors.borderSoft) }
+
+    private var voxtralStatus: String {
+        guard viewModel.dictationEngine == .voxtral else {
+            return "Texto aparece ao terminar de falar."
+        }
+        if !viewModel.isVoxtralInstalled { return "Modelo Voxtral não encontrado; usando Whisper." }
+        if viewModel.isVoxtralLoading { return "Carregando Voxtral… enquanto isso, usa Whisper." }
+        if viewModel.isVoxtralReady { return "Texto aparece enquanto você fala. Whisper fica de reserva." }
+        return "Voxtral não iniciou; usando Whisper."
+    }
 
     private func modelPicker(selection: Binding<WhisperModel>) -> some View {
         Picker("", selection: selection) {

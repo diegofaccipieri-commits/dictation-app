@@ -9,6 +9,7 @@ class AudioRecorder: NSObject, ObservableObject {
     private let sampleLock = NSLock()
 
     var onSamplesAvailable: (([Float], Double) -> Void)?  // samples + sampleRate
+    var onNewSamples: (([Float]) -> Void)?  // only the newly captured 16kHz chunk (live streaming)
     var onRecordingInterrupted: (() -> Void)?
 
     private var configChangeObserver: NSObjectProtocol?
@@ -75,6 +76,7 @@ class AudioRecorder: NSObject, ObservableObject {
                 if let callbackSamples {
                     self.onSamplesAvailable?(callbackSamples, 16000)
                 }
+                self.onNewSamples?(resampled)
             }
         }
 

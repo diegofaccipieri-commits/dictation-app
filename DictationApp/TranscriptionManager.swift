@@ -87,7 +87,10 @@ class TranscriptionManager {
     private var batchModel: WhisperModel = .defaultBatch
 
     var isFinalModelReady: Bool {
-        get async { await final_.isReady }
+        get async {
+            if whisperCpp != nil { return true }
+            return await final_.isReady
+        }
     }
 
     func loadModels(liveModel: WhisperModel = .defaultLive, batchModel: WhisperModel = .defaultBatch) async {
@@ -96,22 +99,15 @@ class TranscriptionManager {
         self.batchModel = batchModel
         // Load whisper.cpp server first — this is the primary transcription engine
         await loadWhisperCpp()
-        // Load WhisperKit in background for batch transcription + fallback
-        Task.detached(priority: .background) { [weak self] in
-            guard let self else { return }
-            await self.final_.load(liveModel: liveModel, batchModel: batchModel)
-            NSLog("DictationApp: [TM] WhisperKit models loaded, liveModel=%@", liveModel.displayName)
-        }
+        // WhisperKit is not loaded up front: batch and meetings use whisper.cpp, and dictation only
+        // needs it if the whisper.cpp server is missing. Loading it at launch competed with Voxtral
+        // for the GPU during the first dictations, so it now loads on demand (see fallback below).
     }
 
     func updateModels(liveModel: WhisperModel, batchModel: WhisperModel) async {
         NSLog("DictationApp: [TM] updateModels: setting liveModel=%@ batchModel=%@", liveModel.displayName, batchModel.displayName)
         self.liveModel = liveModel
         self.batchModel = batchModel
-        Task.detached(priority: .background) { [weak self] in
-            guard let self else { return }
-            await self.final_.load(liveModel: liveModel, batchModel: batchModel)
-        }
     }
 
     // whisper.cpp server for final transcription (separate process, model stays in memory)
@@ -156,6 +152,7 @@ class TranscriptionManager {
 
         // Fallback to WhisperKit if whisper.cpp not available
         NSLog("DictationApp: [TRANSCRIBE] whisper.cpp not loaded, falling back to WhisperKit...")
+        await final_.load(liveModel: liveModel, batchModel: liveModel)
         guard let kit = await final_.kit(for: liveModel) else {
             NSLog("DictationApp: [TRANSCRIBE] ERROR: no model available")
             return ""
@@ -213,6 +210,7 @@ class TranscriptionManager {
     func transcribeFinal(url: URL) async throws -> String {
         NSLog("DictationApp: [TRANSCRIBE] transcribeFinal called, liveModel=%@ (.rawValue=%@)", liveModel.displayName, liveModel.rawValue)
 
+        await final_.load(liveModel: liveModel, batchModel: liveModel)
         // Try liveModel first, then try all models in priority order
         var kit = await final_.kit(for: liveModel)
         var usedModel = liveModel.displayName
@@ -271,6 +269,13 @@ enum TextCleaner {
         let merged = WhisperCppServer.mergeFragmentedWords(joined)
         let dehalluced = stripHallucinations(merged)
         return applyPunctuationCommands(dehalluced)
+    }
+
+    /// Cleanup for engines that already return one plain string (Voxtral): no Whisper token or
+    /// hallucination stripping, just spoken punctuation commands and capitalization.
+    static func cleanPlain(_ text: String) -> String {
+        let collapsed = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return applyPunctuationCommands(collapsed.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private static func stripWhisperTokens(_ text: String) -> String {

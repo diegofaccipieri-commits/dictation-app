@@ -29,6 +29,12 @@ targets:
       - path: DictationApp/whisper-server
         type: file
         buildPhase: resources
+      - path: DictationApp/voxtral-server
+        type: file
+        buildPhase: resources
+      - path: DictationApp/libomp.dylib
+        type: file
+        buildPhase: resources
     info:
       path: DictationApp/Info.plist
       properties:
@@ -37,8 +43,8 @@ targets:
         NSSpeechRecognitionUsageDescription: "DictationApp uses speech recognition to detect the wake word Sileide."
         NSScreenCaptureUsageDescription: "O DictationApp precisa da permissao de Gravacao de Tela para capturar o audio do sistema nas reunioes (Zoom, Teams, Meet, navegador)."
         NSAudioCaptureUsageDescription: "O DictationApp precisa gravar o audio do sistema para capturar o que os outros participantes falam nas reunioes."
-        CFBundleShortVersionString: "1.30.2"
-        CFBundleVersion: "13002"
+        CFBundleShortVersionString: "1.30.3"
+        CFBundleVersion: "13003"
         NSHumanReadableCopyright: ""
     dependencies:
       - package: WhisperKit
