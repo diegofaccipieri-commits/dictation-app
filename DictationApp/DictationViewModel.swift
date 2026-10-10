@@ -354,7 +354,8 @@ class DictationViewModel: ObservableObject {
                 voxtral.begin()
                 voxtralSessionActive = true
                 let server = voxtral
-                if UserDefaults.standard.object(forKey: "voxtralSkipSilence") as? Bool ?? true {
+                // Off by default: dropping silent stretches made Voxtral stop transcribing before the end.
+                if UserDefaults.standard.object(forKey: "voxtralSkipSilence") as? Bool ?? false {
                     let gate = SilenceGate()
                     recorder.onNewSamples = { server.feed(gate.process($0)) }
                 } else {
