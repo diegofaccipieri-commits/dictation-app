@@ -523,6 +523,23 @@ class DictationViewModel: ObservableObject {
                 voxtralSeconds = ProcessInfo.processInfo.systemUptime - start
                 NSLog("DictationApp: [FINAL] voxtral returned %d chars in %.2fs", transcript.count, voxtralSeconds)
             }
+            // Apple hears one language per dictation and mangles English/Spanish terms inside
+            // Portuguese speech. Whisper (multilingual) redoes the final text, and the typed
+            // Apple text is corrected to it at the cursor.
+            var appleText = ""
+            var whisperSeconds = 0.0
+            if usedEngine == "apple", !transcript.isEmpty {
+                let t0 = ProcessInfo.processInfo.systemUptime
+                let redo = await manager.transcribeSamplesFinal(samples)
+                whisperSeconds = ProcessInfo.processInfo.systemUptime - t0
+                if !redo.isEmpty {
+                    appleText = transcript
+                    transcript = redo
+                    voxtralRaw = redo
+                    usedEngine = "apple+whisper"
+                }
+                NSLog("DictationApp: [FINAL] whisper redo %d chars in %.2fs", redo.count, whisperSeconds)
+            }
             if transcript.isEmpty {
                 if useVoxtral { NSLog("DictationApp: [FINAL] voxtral empty/failed — falling back to whisper") }
                 NSLog("DictationApp: [FINAL] calling transcribeSamplesFinal...")
@@ -532,6 +549,8 @@ class DictationViewModel: ObservableObject {
             let result = transcript
             let engine = usedEngine
             let voxtralFinishSeconds = voxtralSeconds
+            let appleOriginal = appleText
+            let whisperRedoSeconds = whisperSeconds
             let voxtralFull = Self.normalizeLive(voxtralRaw)
             if Task.isCancelled { return }
             let elapsed = ProcessInfo.processInfo.systemUptime - start
@@ -589,7 +608,9 @@ class DictationViewModel: ObservableObject {
                         "source_text": result,
                         "source_text_length": result.count,
                         "engine": engine,
-                        "voxtral_finish_seconds": voxtralFinishSeconds
+                        "voxtral_finish_seconds": voxtralFinishSeconds,
+                        "apple_text": appleOriginal,
+                        "whisper_redo_seconds": whisperRedoSeconds
                     ])
                     self.transcribedText = finalText
                     self.addToHistory(finalText)
@@ -598,7 +619,7 @@ class DictationViewModel: ObservableObject {
                         self.liveTypedText = nil
                         if engine != "whisper", voxtralFull.hasPrefix(typed) {
                             KeyboardTyper.type(String(voxtralFull.dropFirst(typed.count)))
-                        } else if engine == "apple", !typed.isEmpty {
+                        } else if engine.hasPrefix("apple"), !typed.isEmpty {
                             self.liveTypedText = typed
                             self.typeLiveDelta(voxtralFull)
                             self.liveTypedText = nil
