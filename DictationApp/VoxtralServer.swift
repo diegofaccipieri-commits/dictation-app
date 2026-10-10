@@ -56,6 +56,9 @@ final class VoxtralServer: @unchecked Sendable {  // state is guarded by `lock`
     private var unsent: [Float] = []    // touched only on writeQueue
     private static let tailPadSamples = 8_000
 
+    /// Why the last start failed: the server's own error lines, or the exit status.
+    private(set) var lastError: String?
+
     var isReady: Bool {
         lock.lock(); defer { lock.unlock() }
         return ready && process?.isRunning == true
@@ -135,7 +138,12 @@ final class VoxtralServer: @unchecked Sendable {  // state is guarded by `lock`
         }
         NSLog("DictationApp: [VOXTRAL] ready=%@ after %.1fs", ok ? "yes" : "no",
               ProcessInfo.processInfo.systemUptime - started)
-        if !ok { stop() }
+        if !ok {
+            stop()
+            lastError = Self.failureReason()
+        } else {
+            lastError = nil
+        }
         return ok
     }
 
@@ -305,10 +313,25 @@ final class VoxtralServer: @unchecked Sendable {  // state is guarded by `lock`
         resolveFinish(nil)
     }
 
+    private static var stderrLogURL: URL {
+        DictationDiagnostics.logDirectory.appendingPathComponent("voxtral-server.log")
+    }
+
+    /// Error and fatal lines the server logged (minus three harmless "No method named" notices).
+    private static func failureReason() -> String {
+        let text = (try? String(contentsOf: stderrLogURL, encoding: .utf8)) ?? ""
+        let lines = text.split(separator: "\n").filter {
+            ($0.hasPrefix("E ") || $0.hasPrefix("F ") || $0.contains("dyld")) && !$0.contains("No method named")
+                && !$0.contains("re2")
+        }
+        let reason = lines.suffix(3).joined(separator: " | ")
+        return reason.isEmpty ? "sem resposta do servidor" : String(reason.prefix(600))
+    }
+
     private static func stderrLog() -> FileHandle {
         let dir = DictationDiagnostics.logDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("voxtral-server.log")
+        let url = stderrLogURL
         FileManager.default.createFile(atPath: url.path, contents: nil)
         return (try? FileHandle(forWritingTo: url)) ?? FileHandle.nullDevice
     }
@@ -365,14 +388,16 @@ enum VoxtralInstaller {
     private static let files = ["tekken.json", "preprocessor.pte", "model-metal-int4.pte"]
     private static let requiredBytes: Int64 = 6_000_000_000   // ~4.4 GB of files plus headroom
 
-    /// Apple Silicon, 16 GB+ RAM and macOS 27+ (the bundled libomp needs it). Smaller Macs stay on Whisper.
+    /// Apple Silicon, 16 GB+ RAM and macOS 15.5+ (the Metal kernels inside the model are built for
+    /// 15.5). Smaller Macs stay on Whisper.
     static var isSupported: Bool {
         var arm: Int32 = 0
         var size = MemoryLayout<Int32>.size
         let isArm = sysctlbyname("hw.optional.arm64", &arm, &size, nil, 0) == 0 && arm == 1
         let ram = ProcessInfo.processInfo.physicalMemory
         let os = ProcessInfo.processInfo.operatingSystemVersion
-        return isArm && ram >= 15 * 1_073_741_824 && os.majorVersion >= 27
+        let osOK = os.majorVersion > 15 || (os.majorVersion == 15 && os.minorVersion >= 5)
+        return isArm && ram >= 15 * 1_073_741_824 && osOK
     }
 
     static func hasDiskSpace() -> Bool {

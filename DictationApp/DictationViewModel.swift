@@ -26,6 +26,7 @@ class DictationViewModel: ObservableObject {
     @Published var isVoxtralReady: Bool = false
     @Published var isVoxtralLoading: Bool = false
     @Published var voxtralDownloadProgress: Double? = nil   // non-nil while the model downloads
+    @Published var voxtralFailure: String? = nil   // set when this Mac failed the Voxtral self-test
 
     private let recorder = AudioRecorder()
     private let transcriptionManager = TranscriptionManager()
@@ -93,6 +94,9 @@ class DictationViewModel: ObservableObject {
         UserDefaults.standard.set(engine.rawValue, forKey: "dictationEngine")
         NSLog("DictationApp: [VM] dictationEngine -> %@", engine.rawValue)
         if engine == .voxtral {
+            // Choosing Voxtral again by hand retries even after failed self-tests.
+            UserDefaults.standard.removeObject(forKey: "voxtralFailures")
+            voxtralFailure = nil
             startVoxtral()
         } else {
             // Whisper only: free the ~4.5 GB the Voxtral model holds.
@@ -185,13 +189,34 @@ class DictationViewModel: ObservableObject {
             downloadVoxtral()
             return
         }
+        // Self-test: READY only arrives after a warm-up inference, so a successful start proves the
+        // Metal kernels run on this Mac. Two failures on the same app build stop the retries (each
+        // attempt loads ~5 GB), so an unsupported Mac settles on Whisper instead of struggling.
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        let failures = UserDefaults.standard.dictionary(forKey: "voxtralFailures") as? [String: Int] ?? [:]
+        if (failures[build] ?? 0) >= 2 {
+            voxtralFailure = UserDefaults.standard.string(forKey: "voxtralLastFailure") ?? "falhou no teste"
+            NSLog("DictationApp: [VM] Voxtral failed its self-test twice on build %@ — using Whisper", build)
+            return
+        }
         isVoxtralLoading = true
         Task {
             let ok = await voxtral.start()
             isVoxtralLoading = false
             isVoxtralReady = ok && dictationEngine == .voxtral
             if ok && dictationEngine != .voxtral { voxtral.stop() }
-            DictationDiagnostics.record("voxtral_start", fields: ["ready": ok])
+            let os = ProcessInfo.processInfo.operatingSystemVersionString
+            if ok {
+                UserDefaults.standard.removeObject(forKey: "voxtralFailures")
+                voxtralFailure = nil
+                DictationDiagnostics.record("voxtral_start", fields: ["ready": true, "os": os])
+            } else {
+                let reason = voxtral.lastError ?? "desconhecido"
+                UserDefaults.standard.set([build: (failures[build] ?? 0) + 1], forKey: "voxtralFailures")
+                UserDefaults.standard.set(reason, forKey: "voxtralLastFailure")
+                voxtralFailure = reason
+                DictationDiagnostics.record("voxtral_start", fields: ["ready": false, "os": os, "error": reason])
+            }
         }
     }
 

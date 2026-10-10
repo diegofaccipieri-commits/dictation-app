@@ -737,9 +737,12 @@ private struct HubSettingsView: View {
         if !viewModel.isVoxtralInstalled {
             return VoxtralInstaller.isSupported
                 ? "Modelo Voxtral não encontrado; usando Whisper."
-                : "Este Mac não roda o Voxtral (precisa de chip Apple, 16 GB e macOS 27); usando Whisper."
+                : "Este Mac não roda o Voxtral (precisa de chip Apple, 16 GB e macOS 15.5+); usando Whisper."
         }
         if viewModel.isVoxtralLoading { return "Carregando Voxtral… enquanto isso, usa Whisper." }
+        if viewModel.voxtralFailure != nil {
+            return "O Voxtral falhou no teste deste Mac; usando Whisper. Para tentar de novo, mude para Whisper e volte para Voxtral."
+        }
         if viewModel.isVoxtralReady { return "Texto aparece enquanto você fala. Whisper fica de reserva." }
         return "Voxtral não iniciou; usando Whisper."
     }
