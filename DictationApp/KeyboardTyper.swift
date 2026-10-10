@@ -25,4 +25,16 @@ enum KeyboardTyper {
             start = end
         }
     }
+
+    static func backspace(_ count: Int) {
+        guard count > 0, !UserDefaults.standard.bool(forKey: "debugNoPaste") else { return }
+        let source = CGEventSource(stateID: .hidSystemState)
+        for _ in 0..<count {
+            for keyDown in [true, false] {
+                guard let event = CGEvent(keyboardEventSource: source, virtualKey: 51, keyDown: keyDown) else { continue }
+                event.flags = []
+                event.post(tap: .cgAnnotatedSessionEventTap)
+            }
+        }
+    }
 }

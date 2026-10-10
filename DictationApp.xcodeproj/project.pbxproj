@@ -50,6 +50,7 @@
 		BF40C10319683773C1EFBDD6 /* DiarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC2F41DD1EC09478B0C90CC /* DiarizationService.swift */; };
 		C51287C1E9AE058B50E77821 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 91B2FE995C3BD5E9E94CFD6E /* FluidAudio */; };
 		C56588C29D6ABACE9BE5DB1E /* MeetingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D65E4E7FDAB6396F033F4D83 /* MeetingsStore.swift */; };
+		CB2D8ADD7ECEE100B78A84EE /* AppleSpeechEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CA1143D994433488E28D0B /* AppleSpeechEngine.swift */; };
 		D97963E41BE0D157430A0260 /* TranscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 010ECB488AF6E3CB420C4B05 /* TranscriptionManager.swift */; };
 		DCE23B88B3D21992D0CB8BEE /* MeetingTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D36A94A98AAC38FF5BBE8EF /* MeetingTranscript.swift */; };
 		E0673111C04A99474760C52B /* WhisperModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C9115276316585237DB37AB /* WhisperModel.swift */; };
@@ -85,6 +86,7 @@
 		888388B0B045E88481C1043B /* DictationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationApp.swift; sourceTree = "<group>"; };
 		8C9115276316585237DB37AB /* WhisperModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperModel.swift; sourceTree = "<group>"; };
 		9397E24E955BCE46AB527AB2 /* MeetingRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecorder.swift; sourceTree = "<group>"; };
+		95CA1143D994433488E28D0B /* AppleSpeechEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechEngine.swift; sourceTree = "<group>"; };
 		9A3F068373E458E92F60AEDD /* ReunioesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReunioesView.swift; sourceTree = "<group>"; };
 		9A88AA362405D41E5E904895 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9CC2F41DD1EC09478B0C90CC /* DiarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiarizationService.swift; sourceTree = "<group>"; };
@@ -139,6 +141,7 @@
 			isa = PBXGroup;
 			children = (
 				30EAB6BEAB3CE8B50A40C939 /* AppDelegate.swift */,
+				95CA1143D994433488E28D0B /* AppleSpeechEngine.swift */,
 				708161D3140BB0625429862C /* AppleTranslator.swift */,
 				9A88AA362405D41E5E904895 /* Assets.xcassets */,
 				AD160A3954ABFDA66CDBBD2B /* AudioDecoder.swift */,
@@ -288,6 +291,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8F39F043B33C6252F68B5112 /* AppDelegate.swift in Sources */,
+				CB2D8ADD7ECEE100B78A84EE /* AppleSpeechEngine.swift in Sources */,
 				3911F500CF5C6DF284ED9FDB /* AppleTranslator.swift in Sources */,
 				71714378D3175242330FCF8B /* AudioDecoder.swift in Sources */,
 				38F27DBAE2090CAF4B76CA8A /* AudioRecorder.swift in Sources */,

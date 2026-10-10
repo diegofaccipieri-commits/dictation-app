@@ -615,11 +615,11 @@ private struct HubSettingsView: View {
                                 Text(engine.displayName).tag(engine)
                             }
                         }
-                        .pickerStyle(.segmented).frame(width: 260)
+                        .pickerStyle(.segmented).frame(width: 360)
                     }
                     Text(voxtralStatus)
                         .font(.caption).foregroundStyle(.secondary).padding(.top, 2)
-                    if viewModel.dictationEngine == .voxtral {
+                    if viewModel.dictationEngine != .whisper {
                         settingsDivider
                         settingsRow("Digitar direto no cursor") {
                             Toggle("", isOn: Binding(
@@ -728,6 +728,12 @@ private struct HubSettingsView: View {
     private var settingsDivider: some View { Divider().overlay(AppColors.borderSoft) }
 
     private var voxtralStatus: String {
+        if viewModel.dictationEngine == .apple {
+            if viewModel.isAppleLoading { return "Preparando o reconhecimento da Apple… enquanto isso, usa Whisper." }
+            if let failure = viewModel.appleFailure { return "Apple indisponível (\(failure)); usando Whisper." }
+            if viewModel.isAppleReady { return "Reconhecimento da Apple, no Mac. Voxtral pausado. Whisper fica de reserva." }
+            return "Apple não iniciou; usando Whisper."
+        }
         guard viewModel.dictationEngine == .voxtral else {
             return "Texto aparece ao terminar de falar."
         }

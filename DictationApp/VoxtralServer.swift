@@ -2,6 +2,7 @@ import Foundation
 
 enum DictationEngine: String, CaseIterable, Identifiable {
     case voxtral
+    case apple
     case whisper
 
     var id: String { rawValue }
@@ -9,6 +10,7 @@ enum DictationEngine: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .voxtral: return "Voxtral (ao vivo)"
+        case .apple: return "Apple (ao vivo)"
         case .whisper: return "Whisper"
         }
     }
