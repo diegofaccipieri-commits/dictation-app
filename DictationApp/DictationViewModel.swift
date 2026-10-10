@@ -216,11 +216,11 @@ class DictationViewModel: ObservableObject {
             liveTypedText = text
             return
         }
-        // Apple revises its latest words as it hears more; fix a short tail with backspaces.
-        // Voxtral only appends, so this path is Apple's.
+        // Apple revises the current sentence as it hears more, sometimes far back; fix it with
+        // backspaces. A 40-char cap here froze typing for the rest of the dictation. Voxtral only
+        // appends, so this path is Apple's.
         let common = zip(typed, text).prefix { $0 == $1 }.count
         let erase = typed.count - common
-        guard erase <= 40 else { return }
         KeyboardTyper.backspace(erase)
         KeyboardTyper.type(String(text.dropFirst(common)))
         liveTypedText = text
