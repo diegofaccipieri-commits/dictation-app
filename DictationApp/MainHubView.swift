@@ -731,7 +731,14 @@ private struct HubSettingsView: View {
         guard viewModel.dictationEngine == .voxtral else {
             return "Texto aparece ao terminar de falar."
         }
-        if !viewModel.isVoxtralInstalled { return "Modelo Voxtral não encontrado; usando Whisper." }
+        if let progress = viewModel.voxtralDownloadProgress {
+            return "Baixando Voxtral (4,4 GB): \(Int(progress * 100))%… enquanto isso, usa Whisper."
+        }
+        if !viewModel.isVoxtralInstalled {
+            return VoxtralInstaller.isSupported
+                ? "Modelo Voxtral não encontrado; usando Whisper."
+                : "Este Mac não roda o Voxtral (precisa de chip Apple, 16 GB e macOS 27); usando Whisper."
+        }
         if viewModel.isVoxtralLoading { return "Carregando Voxtral… enquanto isso, usa Whisper." }
         if viewModel.isVoxtralReady { return "Texto aparece enquanto você fala. Whisper fica de reserva." }
         return "Voxtral não iniciou; usando Whisper."

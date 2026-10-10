@@ -54,6 +54,7 @@ final class VoxtralServer: @unchecked Sendable {  // state is guarded by `lock`
     // partial blocks: measured 27% slower than real time with the mic's 1365-sample buffers.
     private static let blockSamples = 1280
     private var unsent: [Float] = []    // touched only on writeQueue
+    private static let tailPadSamples = 8_000
 
     var isReady: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -188,10 +189,11 @@ final class VoxtralServer: @unchecked Sendable {  // state is guarded by `lock`
             let token = armFinish(cont)
             writeQueue.async { [weak self] in
                 guard let self else { return }
-                if !self.unsent.isEmpty {
-                    self.writeNow(Self.audioPacket(self.unsent))
-                    self.unsent.removeAll()
-                }
+                // The runner's own flush padding drops the last ~0.5 s of speech when the user
+                // stops mid-word ("ele não começa a" for "...a escrever."); 0.5 s of silence fixes it.
+                self.unsent.append(contentsOf: [Float](repeating: 0, count: Self.tailPadSamples))
+                self.writeNow(Self.audioPacket(self.unsent))
+                self.unsent.removeAll()
                 self.writeNow(Data([UInt8(ascii: "E")]))
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in
@@ -353,5 +355,75 @@ final class SilenceGate {
             preroll.removeFirst(excess)
         }
         return []
+    }
+}
+
+/// Downloads the Voxtral model on first launch so other Macs get live dictation without setup.
+/// Files land in a temporary folder and are moved into place only when complete.
+enum VoxtralInstaller {
+    private static let baseURL = "https://huggingface.co/mistral-experimental/Voxtral-Mini-4B-Realtime-2602-ExecuTorch/resolve/main/"
+    private static let files = ["tekken.json", "preprocessor.pte", "model-metal-int4.pte"]
+    private static let requiredBytes: Int64 = 6_000_000_000   // ~4.4 GB of files plus headroom
+
+    /// Apple Silicon, 16 GB+ RAM and macOS 27+ (the bundled libomp needs it). Smaller Macs stay on Whisper.
+    static var isSupported: Bool {
+        var arm: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        let isArm = sysctlbyname("hw.optional.arm64", &arm, &size, nil, 0) == 0 && arm == 1
+        let ram = ProcessInfo.processInfo.physicalMemory
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        return isArm && ram >= 15 * 1_073_741_824 && os.majorVersion >= 27
+    }
+
+    static func hasDiskSpace() -> Bool {
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        let free = (try? home.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage ?? 0
+        return free > requiredBytes
+    }
+
+    /// Downloads the missing files. `progress` gets 0...1 on the main thread. Returns true when installed.
+    static func install(progress: @escaping (Double) -> Void) async -> Bool {
+        let fm = FileManager.default
+        let dir = URL(fileURLWithPath: VoxtralServer.modelDirectory, isDirectory: true)
+        do {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            for (index, name) in files.enumerated() {
+                let dest = dir.appendingPathComponent(name)
+                if fm.fileExists(atPath: dest.path) { continue }
+                guard let url = URL(string: baseURL + name) else { return false }
+                NSLog("DictationApp: [VOXTRAL] downloading %@", name)
+                let delegate = DownloadProgress { fraction in
+                    let overall = (Double(index) + fraction) / Double(files.count)
+                    DispatchQueue.main.async { progress(name == "model-metal-int4.pte" ? fraction : overall) }
+                }
+                let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+                defer { session.finishTasksAndInvalidate() }
+                let (tmp, response) = try await session.download(from: url)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                    try? fm.removeItem(at: tmp)
+                    NSLog("DictationApp: [VOXTRAL] download of %@ failed (HTTP)", name)
+                    return false
+                }
+                try fm.moveItem(at: tmp, to: dest)
+            }
+            return VoxtralServer.isInstalled
+        } catch {
+            NSLog("DictationApp: [VOXTRAL] download failed: %@", error.localizedDescription)
+            return false
+        }
+    }
+
+    private final class DownloadProgress: NSObject, URLSessionDownloadDelegate {
+        let onProgress: (Double) -> Void
+        init(_ onProgress: @escaping (Double) -> Void) { self.onProgress = onProgress }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+                        totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+            guard totalBytesExpectedToWrite > 0 else { return }
+            onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
     }
 }

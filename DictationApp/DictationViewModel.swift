@@ -25,6 +25,7 @@ class DictationViewModel: ObservableObject {
     @Published var dictationEngine: DictationEngine = DictationEngine.current
     @Published var isVoxtralReady: Bool = false
     @Published var isVoxtralLoading: Bool = false
+    @Published var voxtralDownloadProgress: Double? = nil   // non-nil while the model downloads
 
     private let recorder = AudioRecorder()
     private let transcriptionManager = TranscriptionManager()
@@ -159,10 +160,29 @@ class DictationViewModel: ObservableObject {
         liveTypedText = text
     }
 
+    private func downloadVoxtral() {
+        guard voxtralDownloadProgress == nil, VoxtralInstaller.isSupported else { return }
+        guard VoxtralInstaller.hasDiskSpace() else {
+            NSLog("DictationApp: [VM] not enough disk space for Voxtral — staying on Whisper")
+            return
+        }
+        voxtralDownloadProgress = 0
+        DictationDiagnostics.record("voxtral_download_started")
+        Task {
+            let ok = await VoxtralInstaller.install { [weak self] fraction in
+                self?.voxtralDownloadProgress = fraction
+            }
+            voxtralDownloadProgress = nil
+            DictationDiagnostics.record("voxtral_download_finished", fields: ["ok": ok])
+            if ok && dictationEngine == .voxtral { startVoxtral() }
+        }
+    }
+
     private func startVoxtral() {
         guard !isVoxtralLoading, !voxtral.isReady else { return }
         guard VoxtralServer.isInstalled else {
             NSLog("DictationApp: [VM] Voxtral not installed — dictation uses Whisper")
+            downloadVoxtral()
             return
         }
         isVoxtralLoading = true
