@@ -358,25 +358,26 @@ final class SilenceGate {
     private var preroll: [Float] = []
     private(set) var droppedSamples = 0
     // The GPU cools within seconds of idling and the next model step then takes ~1.5 s instead of
-    // 0.075 s. Passing the first 0.17 s runs that slow step while the user starts talking, and one
-    // 80 ms block per second of silence keeps it warm through pauses.
-    private var primeLeft = 2_720
+    // 0.075 s. Leading silence is passed through so that slow step runs before the user talks (a
+    // short prime followed by a jump made the model end the transcript early), and one 80 ms block
+    // per second of silence keeps it warm through pauses.
+    private var leading = true
     private var silentSinceTick = 0
     private let tickInterval = 16_000
     private let tickSamples = 1_280
 
     func process(_ chunk: [Float]) -> [Float] {
         guard !chunk.isEmpty else { return [] }
-        if primeLeft > 0 {
-            primeLeft -= chunk.count
-            return chunk
-        }
         var sum: Float = 0
         for s in chunk { sum += s * s }
         let rms = (sum / Float(chunk.count)).squareRoot()
 
         if rms < threshold {
             noiseFloor = noiseFloor * 0.95 + rms * 0.05
+        }
+        if leading {
+            if rms < threshold { return chunk }
+            leading = false
         }
         if rms >= threshold {
             hangoverLeft = hangoverSamples
