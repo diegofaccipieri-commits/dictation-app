@@ -1,5 +1,5 @@
 diff --git a/examples/models/voxtral_realtime/main.cpp b/examples/models/voxtral_realtime/main.cpp
-index 8dd8fb7..2fe5cea 100644
+index 8dd8fb7..81dcfe0 100644
 --- a/examples/models/voxtral_realtime/main.cpp
 +++ b/examples/models/voxtral_realtime/main.cpp
 @@ -21,6 +21,7 @@
@@ -39,7 +39,7 @@ index 8dd8fb7..2fe5cea 100644
        !gflags::GetCommandLineFlagInfoOrDie("offline_max_new_tokens")
             .is_default) {
      ET_LOG(
-@@ -166,6 +171,83 @@ int main(int argc, char** argv) {
+@@ -166,6 +171,94 @@ int main(int argc, char** argv) {
      fflush(stdout);
    };
  
@@ -48,6 +48,7 @@ index 8dd8fb7..2fe5cea 100644
 +    //   'A' <uint32 n> <n float32 samples @16kHz>  feed audio (opens a session if none)
 +    //   'E'                                         flush session, then emit 0x1E on stdout
 +    //   'C'                                         cancel session without flushing
++    //   'W'                                         keep-warm pass (ignored mid-session)
 +    // stdout: transcript pieces as they decode; "\x1DREADY\n" once the model is loaded.
 +    ET_CHECK_MSG(runner.is_streaming(), "Model was not exported with --streaming.");
 +    auto piece_cb = [](const std::string& piece) {
@@ -115,6 +116,16 @@ index 8dd8fb7..2fe5cea 100644
 +        fflush(stdout);
 +      } else if (op == 'C') {
 +        session.reset();
++      } else if (op == 'W') {
++        // Keep-warm: after hours idle macOS pages the weights out and the next dictation runs
++        // 3x slower than real time. A 1 s throwaway session touches them again.
++        if (!session) {
++          std::vector<float> silence(16000, 0.0f);
++          auto warm = runner.create_streaming_session(
++              make_streaming_config(), [](const std::string&) {});
++          warm->feed_audio(silence.data(), static_cast<int64_t>(silence.size()));
++          warm->flush();
++        }
 +      }
 +    }
 +    return 0;

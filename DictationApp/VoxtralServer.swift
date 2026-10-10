@@ -191,7 +191,7 @@ final class VoxtralServer: @unchecked Sendable {  // state is guarded by `lock`
     }
 
     /// Flush the session and return its full transcript, or nil if the server failed.
-    func finish(timeout: TimeInterval = 8) async -> String? {
+    func finish(timeout: TimeInterval = 20) async -> String? {
         guard isReady else { return nil }
         let text = await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
             let token = armFinish(cont)
@@ -210,6 +210,12 @@ final class VoxtralServer: @unchecked Sendable {  // state is guarded by `lock`
         }
         lock.withLock { sessionOpen = false }
         return text
+    }
+
+    /// Re-touch the model so it stays resident between dictations. No-op during a session.
+    func keepWarm() {
+        guard isReady, !lock.withLock({ sessionOpen }) else { return }
+        writeQueue.async { [weak self] in self?.writeNow(Data([UInt8(ascii: "W")])) }
     }
 
     /// Drop the current session without producing text.

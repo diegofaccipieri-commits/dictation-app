@@ -39,6 +39,7 @@ class DictationViewModel: ObservableObject {
     private let voxtral = VoxtralServer()
     private var voxtralSessionActive = false
     private var recordingActivity: NSObjectProtocol?
+    private var keepWarmTimer: Timer?
     @Published var typesLive: Bool = UserDefaults.standard.object(forKey: "voxtralTypeLive") as? Bool ?? true
     /// Text already typed at the cursor in this session; nil when the session is not typing live.
     private var liveTypedText: String?
@@ -66,6 +67,23 @@ class DictationViewModel: ObservableObject {
             }
         }
         if dictationEngine == .voxtral { startVoxtral() }
+        // Idle for hours, macOS pages the Voxtral weights out and the first dictation runs ~3x slower
+        // than speech. A 1 s warm pass every 5 idle minutes, and right after wake, keeps it resident.
+        keepWarmTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.state == .idle else { return }
+                self.voxtral.keepWarm()
+            }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self, self.state == .idle else { return }
+                self.voxtral.keepWarm()
+            }
+        }
         // Test hook (off unless enabled): lets a script start/stop dictation to measure Voxtral.
         if UserDefaults.standard.bool(forKey: "debugRemoteToggle") {
             DistributedNotificationCenter.default().addObserver(
