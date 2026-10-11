@@ -615,9 +615,9 @@ private struct HubSettingsView: View {
                                 Text(engine.displayName).tag(engine)
                             }
                         }
-                        .pickerStyle(.segmented).frame(width: 360)
+                        .pickerStyle(.segmented).frame(width: 260)
                     }
-                    Text(voxtralStatus)
+                    Text(engineStatus)
                         .font(.caption).foregroundStyle(.secondary).padding(.top, 2)
                     if viewModel.dictationEngine != .whisper {
                         settingsDivider
@@ -727,30 +727,14 @@ private struct HubSettingsView: View {
 
     private var settingsDivider: some View { Divider().overlay(AppColors.borderSoft) }
 
-    private var voxtralStatus: String {
+    private var engineStatus: String {
         if viewModel.dictationEngine == .apple {
             if viewModel.isAppleLoading { return "Preparando o reconhecimento da Apple… enquanto isso, usa Whisper." }
             if let failure = viewModel.appleFailure { return "Apple indisponível (\(failure)); usando Whisper." }
-            if viewModel.isAppleReady { return "Reconhecimento da Apple, no Mac. Voxtral pausado. Whisper fica de reserva." }
+            if viewModel.isAppleReady { return "Texto aparece enquanto você fala; ao terminar, o Whisper revisa (inglês e espanhol no meio da frase)." }
             return "Apple não iniciou; usando Whisper."
         }
-        guard viewModel.dictationEngine == .voxtral else {
-            return "Texto aparece ao terminar de falar."
-        }
-        if let progress = viewModel.voxtralDownloadProgress {
-            return "Baixando Voxtral (4,4 GB): \(Int(progress * 100))%… enquanto isso, usa Whisper."
-        }
-        if !viewModel.isVoxtralInstalled {
-            return VoxtralInstaller.isSupported
-                ? "Modelo Voxtral não encontrado; usando Whisper."
-                : "Este Mac não roda o Voxtral (precisa de chip Apple, 16 GB e macOS 15.5+); usando Whisper."
-        }
-        if viewModel.isVoxtralLoading { return "Carregando Voxtral… enquanto isso, usa Whisper." }
-        if viewModel.voxtralFailure != nil {
-            return "O Voxtral falhou no teste deste Mac; usando Whisper. Para tentar de novo, mude para Whisper e volte para Voxtral."
-        }
-        if viewModel.isVoxtralReady { return "Texto aparece enquanto você fala. Whisper fica de reserva." }
-        return "Voxtral não iniciou; usando Whisper."
+        return "Texto aparece ao terminar de falar."
     }
 
     private func modelPicker(selection: Binding<WhisperModel>) -> some View {

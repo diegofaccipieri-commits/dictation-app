@@ -29,12 +29,6 @@ targets:
       - path: DictationApp/whisper-server
         type: file
         buildPhase: resources
-      - path: DictationApp/voxtral-server
-        type: file
-        buildPhase: resources
-      - path: DictationApp/libomp.dylib
-        type: file
-        buildPhase: resources
     info:
       path: DictationApp/Info.plist
       properties:

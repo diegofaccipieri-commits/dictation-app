@@ -16,7 +16,7 @@ private enum HUDPhase {
     case idle
 }
 
-// Live transcript shown beside the recording indicator while Voxtral streams.
+// Live transcript shown beside the recording indicator while the live engine streams.
 final class HUDLiveText: ObservableObject {
     @Published var text = ""
 }

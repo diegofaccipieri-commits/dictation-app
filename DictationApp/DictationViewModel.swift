@@ -23,10 +23,6 @@ class DictationViewModel: ObservableObject {
     }()
     @Published var isTranslating: Bool = false
     @Published var dictationEngine: DictationEngine = DictationEngine.current
-    @Published var isVoxtralReady: Bool = false
-    @Published var isVoxtralLoading: Bool = false
-    @Published var voxtralDownloadProgress: Double? = nil   // non-nil while the model downloads
-    @Published var voxtralFailure: String? = nil   // set when this Mac failed the Voxtral self-test
 
     private let recorder = AudioRecorder()
     private let transcriptionManager = TranscriptionManager()
@@ -36,15 +32,13 @@ class DictationViewModel: ObservableObject {
     private let wakeWordMonitor = WakeWordMonitor()
     private var transcriptionTask: Task<Void, Never>?
     private var currentRecordingID: String?
-    private let voxtral = VoxtralServer()
     private let apple = AppleSpeechEngine()
     @Published var isAppleReady: Bool = false
     @Published var isAppleLoading: Bool = false
     @Published var appleFailure: String? = nil
-    private var voxtralSessionActive = false   // a live session (Voxtral or Apple) is open
+    private var liveSessionActive = false
     private var liveSession: LiveTranscriber?
     private var recordingActivity: NSObjectProtocol?
-    private var keepWarmTimer: Timer?
     @Published var typesLive: Bool = UserDefaults.standard.object(forKey: "voxtralTypeLive") as? Bool ?? true
     /// Text already typed at the cursor in this session; nil when the session is not typing live.
     private var liveTypedText: String?
@@ -64,35 +58,16 @@ class DictationViewModel: ObservableObject {
         }
         Task { await self.loadModels(liveModel: liveModel, batchModel: batchModel) }
         let onLiveText: (String) -> Void = { [weak self] text in
-            guard let self, self.voxtralSessionActive, self.state == .recording else { return }
+            guard let self, self.liveSessionActive, self.state == .recording else { return }
             if self.liveTypedText != nil {
                 self.typeLiveDelta(Self.normalizeLive(text))
             } else {
                 self.hud.updateLive(text)
             }
         }
-        voxtral.onText = onLiveText
         apple.onText = onLiveText
-        if dictationEngine == .voxtral { startVoxtral() }
         if dictationEngine == .apple { startApple() }
-        // Idle for hours, macOS pages the Voxtral weights out and the first dictation runs ~3x slower
-        // than speech. A 1 s warm pass every 5 idle minutes, and right after wake, keeps it resident.
-        keepWarmTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.state == .idle else { return }
-                self.voxtral.keepWarm()
-            }
-        }
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard let self, self.state == .idle else { return }
-                self.voxtral.keepWarm()
-            }
-        }
-        // Test hook (off unless enabled): lets a script start/stop dictation to measure Voxtral.
+        // Test hook (off unless enabled): lets a script start/stop dictation to measure the live engine.
         if UserDefaults.standard.bool(forKey: "debugRemoteToggle") {
             DistributedNotificationCenter.default().addObserver(
                 forName: Notification.Name("com.diego.dictationapp.debugToggle"), object: nil, queue: .main
@@ -112,7 +87,6 @@ class DictationViewModel: ObservableObject {
     /// Called on app termination: stop the whisper.cpp server so it doesn't outlive the app.
     func shutdown() {
         transcriptionManager.shutdownServer()
-        voxtral.stop()
         apple.stop()
     }
 
@@ -120,16 +94,6 @@ class DictationViewModel: ObservableObject {
         dictationEngine = engine
         UserDefaults.standard.set(engine.rawValue, forKey: "dictationEngine")
         NSLog("DictationApp: [VM] dictationEngine -> %@", engine.rawValue)
-        if engine == .voxtral {
-            // Choosing Voxtral again by hand retries even after failed self-tests.
-            UserDefaults.standard.removeObject(forKey: "voxtralFailures")
-            voxtralFailure = nil
-            startVoxtral()
-        } else {
-            // Voxtral paused: free the ~4.5 GB its model holds. It stays installed.
-            voxtral.stop()
-            isVoxtralReady = false
-        }
         if engine == .apple {
             startApple()
         } else {
@@ -156,12 +120,10 @@ class DictationViewModel: ObservableObject {
         }
     }
 
-    var isVoxtralInstalled: Bool { VoxtralServer.isInstalled }
-
-    /// Test hook: plays a 16 kHz WAV into Voxtral in real time with the recording HUD on screen,
+    /// Test hook: plays a 16 kHz WAV into the live engine in real time with the recording HUD on screen,
     /// as a dictation would, and logs how long the final flush took.
     private func debugFeed(wavPath: String) async {
-        let eng: LiveTranscriber = dictationEngine == .apple ? apple : voxtral
+        let eng = apple
         guard eng.isReady, state == .idle, let data = FileManager.default.contents(atPath: wavPath),
               data.count > 44 else { return }
         let samples: [Float] = data.dropFirst(44).withUnsafeBytes { raw in
@@ -170,7 +132,7 @@ class DictationViewModel: ObservableObject {
         hud.show(state: .recording, near: NSEvent.mouseLocation)
         if !typesLive { hud.showLive() }
         eng.begin()
-        voxtralSessionActive = true
+        liveSessionActive = true
         state = .recording
         let start = Date()
         var offset = 0
@@ -182,7 +144,7 @@ class DictationViewModel: ObservableObject {
             let wait = due.timeIntervalSinceNow
             if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1e9)) }
         }
-        voxtralSessionActive = false
+        liveSessionActive = false
         state = .transcribing
         hud.update(state: .transcribing)
         let t0 = ProcessInfo.processInfo.systemUptime
@@ -217,69 +179,12 @@ class DictationViewModel: ObservableObject {
             return
         }
         // Apple revises the current sentence as it hears more, sometimes far back; fix it with
-        // backspaces. A 40-char cap here froze typing for the rest of the dictation. Voxtral only
-        // appends, so this path is Apple's.
+        // backspaces. A 40-char cap here froze typing for the rest of the dictation.
         let common = zip(typed, text).prefix { $0 == $1 }.count
         let erase = typed.count - common
         KeyboardTyper.backspace(erase)
         KeyboardTyper.type(String(text.dropFirst(common)))
         liveTypedText = text
-    }
-
-    private func downloadVoxtral() {
-        guard voxtralDownloadProgress == nil, VoxtralInstaller.isSupported else { return }
-        guard VoxtralInstaller.hasDiskSpace() else {
-            NSLog("DictationApp: [VM] not enough disk space for Voxtral — staying on Whisper")
-            return
-        }
-        voxtralDownloadProgress = 0
-        DictationDiagnostics.record("voxtral_download_started")
-        Task {
-            let ok = await VoxtralInstaller.install { [weak self] fraction in
-                self?.voxtralDownloadProgress = fraction
-            }
-            voxtralDownloadProgress = nil
-            DictationDiagnostics.record("voxtral_download_finished", fields: ["ok": ok])
-            if ok && dictationEngine == .voxtral { startVoxtral() }
-        }
-    }
-
-    private func startVoxtral() {
-        guard !isVoxtralLoading, !voxtral.isReady else { return }
-        guard VoxtralServer.isInstalled else {
-            NSLog("DictationApp: [VM] Voxtral not installed — dictation uses Whisper")
-            downloadVoxtral()
-            return
-        }
-        // Self-test: READY only arrives after a warm-up inference, so a successful start proves the
-        // Metal kernels run on this Mac. Two failures on the same app build stop the retries (each
-        // attempt loads ~5 GB), so an unsupported Mac settles on Whisper instead of struggling.
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        let failures = UserDefaults.standard.dictionary(forKey: "voxtralFailures") as? [String: Int] ?? [:]
-        if (failures[build] ?? 0) >= 2 {
-            voxtralFailure = UserDefaults.standard.string(forKey: "voxtralLastFailure") ?? "falhou no teste"
-            NSLog("DictationApp: [VM] Voxtral failed its self-test twice on build %@ — using Whisper", build)
-            return
-        }
-        isVoxtralLoading = true
-        Task {
-            let ok = await voxtral.start()
-            isVoxtralLoading = false
-            isVoxtralReady = ok && dictationEngine == .voxtral
-            if ok && dictationEngine != .voxtral { voxtral.stop() }
-            let os = ProcessInfo.processInfo.operatingSystemVersionString
-            if ok {
-                UserDefaults.standard.removeObject(forKey: "voxtralFailures")
-                voxtralFailure = nil
-                DictationDiagnostics.record("voxtral_start", fields: ["ready": true, "os": os])
-            } else {
-                let reason = voxtral.lastError ?? "desconhecido"
-                UserDefaults.standard.set([build: (failures[build] ?? 0) + 1], forKey: "voxtralFailures")
-                UserDefaults.standard.set(reason, forKey: "voxtralLastFailure")
-                voxtralFailure = reason
-                DictationDiagnostics.record("voxtral_start", fields: ["ready": false, "os": os, "error": reason])
-            }
-        }
     }
 
     func setWakeWord(enabled: Bool) {
@@ -365,7 +270,7 @@ class DictationViewModel: ObservableObject {
         recorder.onNewSamples = nil
         recorder.stopRecording()
         endRecordingActivity()
-        endVoxtralSession(cancel: true)
+        endLiveSession(cancel: true)
         state = .idle
         hud.hide()
         if isWakeWordEnabled { wakeWordMonitor.start() }
@@ -378,10 +283,10 @@ class DictationViewModel: ObservableObject {
         }
     }
 
-    private func endVoxtralSession(cancel: Bool) {
+    private func endLiveSession(cancel: Bool) {
         liveTypedText = nil
-        guard voxtralSessionActive else { return }
-        voxtralSessionActive = false
+        guard liveSessionActive else { return }
+        liveSessionActive = false
         if cancel { liveSession?.cancel() }
         liveSession = nil
     }
@@ -400,21 +305,14 @@ class DictationViewModel: ObservableObject {
             currentRecordingID = recordingID
             liveTypedText = nil
             let engine: LiveTranscriber? = switch dictationEngine {
-            case .voxtral: voxtral.isReady ? voxtral : nil
             case .apple: apple.isReady ? apple : nil
             case .whisper: nil
             }
             liveSession = engine
             if let server = engine {
                 server.begin()
-                voxtralSessionActive = true
-                // Off by default: dropping silent stretches made Voxtral stop transcribing before the end.
-                if dictationEngine == .voxtral, UserDefaults.standard.object(forKey: "voxtralSkipSilence") as? Bool ?? false {
-                    let gate = SilenceGate()
-                    recorder.onNewSamples = { server.feed(gate.process($0)) }
-                } else {
-                    recorder.onNewSamples = { server.feed($0) }
-                }
+                liveSessionActive = true
+                recorder.onNewSamples = { server.feed($0) }
                 if typesLive && translationMode == .off {
                     liveTypedText = ""
                 } else {
@@ -432,7 +330,7 @@ class DictationViewModel: ObservableObject {
             DictationDiagnostics.record("recording_started", fields: ["recording_id": recordingID])
         } catch {
             recorder.onNewSamples = nil
-            endVoxtralSession(cancel: true)
+            endLiveSession(cancel: true)
             hud.hide()
             currentRecordingID = nil
             NSLog("DictationApp: [VM] ERROR starting recording: %@", error.localizedDescription)
@@ -447,8 +345,8 @@ class DictationViewModel: ObservableObject {
         hud.update(state: .transcribing)
         recorder.onNewSamples = nil
         endRecordingActivity()
-        let useVoxtral = voxtralSessionActive
-        voxtralSessionActive = false
+        let useLive = liveSessionActive
+        liveSessionActive = false
 
         let (allSamples, _) = recorder.currentSamples
         let duration = Double(allSamples.count) / 16000.0
@@ -476,25 +374,25 @@ class DictationViewModel: ObservableObject {
             hud.hide()
             if isWakeWordEnabled { wakeWordMonitor.start() }
             recorder.stopRecording()
-            if useVoxtral { liveSession?.cancel() }
+            if useLive { liveSession?.cancel() }
             liveSession = nil
             liveTypedText = nil
             return
         }
 
-        finalizeTranscription(samples: allSamples, recordingID: recordingID, useVoxtral: useVoxtral)
+        finalizeTranscription(samples: allSamples, recordingID: recordingID, useLive: useLive)
         recorder.stopRecording()
     }
 
     // MARK: - Final transcription (whisper.cpp server)
 
-    private func finalizeTranscription(samples: [Float], recordingID: String, useVoxtral: Bool = false) {
+    private func finalizeTranscription(samples: [Float], recordingID: String, useLive: Bool = false) {
         NSLog("DictationApp: [FINAL] finalizeTranscription called, %d samples (%.1fs)", samples.count, Double(samples.count) / 16000.0)
 
         guard samples.count >= 4800 else {
             NSLog("DictationApp: [FINAL] too short (%d samples) — skipping", samples.count)
             errorMessage = "Recording too short"
-            if useVoxtral { liveSession?.cancel() }
+            if useLive { liveSession?.cancel() }
             liveSession = nil
             liveTypedText = nil
             state = .idle
@@ -512,16 +410,16 @@ class DictationViewModel: ObservableObject {
             let start = ProcessInfo.processInfo.systemUptime
             var transcript = ""
             var usedEngine = "whisper"
-            var voxtralSeconds = 0.0
-            var voxtralRaw = ""
-            if useVoxtral, let server {
+            var liveSeconds = 0.0
+            var liveRaw = ""
+            if useLive, let server {
                 if let text = await server.finishSession() {
-                    voxtralRaw = text
+                    liveRaw = text
                     transcript = TextCleaner.cleanPlain(text)
                     usedEngine = liveName
                 }
-                voxtralSeconds = ProcessInfo.processInfo.systemUptime - start
-                NSLog("DictationApp: [FINAL] voxtral returned %d chars in %.2fs", transcript.count, voxtralSeconds)
+                liveSeconds = ProcessInfo.processInfo.systemUptime - start
+                NSLog("DictationApp: [FINAL] live engine returned %d chars in %.2fs", transcript.count, liveSeconds)
             }
             // Apple hears one language per dictation and mangles English/Spanish terms inside
             // Portuguese speech. Whisper (multilingual) redoes the final text, and the typed
@@ -535,23 +433,23 @@ class DictationViewModel: ObservableObject {
                 if !redo.isEmpty {
                     appleText = transcript
                     transcript = redo
-                    voxtralRaw = redo
+                    liveRaw = redo
                     usedEngine = "apple+whisper"
                 }
                 NSLog("DictationApp: [FINAL] whisper redo %d chars in %.2fs", redo.count, whisperSeconds)
             }
             if transcript.isEmpty {
-                if useVoxtral { NSLog("DictationApp: [FINAL] voxtral empty/failed — falling back to whisper") }
+                if useLive { NSLog("DictationApp: [FINAL] live engine empty/failed — falling back to whisper") }
                 NSLog("DictationApp: [FINAL] calling transcribeSamplesFinal...")
                 transcript = await manager.transcribeSamplesFinal(samples)
                 usedEngine = "whisper"
             }
             let result = transcript
             let engine = usedEngine
-            let voxtralFinishSeconds = voxtralSeconds
+            let liveFinishSeconds = liveSeconds
             let appleOriginal = appleText
             let whisperRedoSeconds = whisperSeconds
-            let voxtralFull = Self.normalizeLive(voxtralRaw)
+            let liveFull = Self.normalizeLive(liveRaw)
             if Task.isCancelled { return }
             let elapsed = ProcessInfo.processInfo.systemUptime - start
             NSLog("DictationApp: [FINAL] transcribed %d chars in %.1fs: '%@'", result.count, elapsed, String(result.prefix(100)))
@@ -608,7 +506,7 @@ class DictationViewModel: ObservableObject {
                         "source_text": result,
                         "source_text_length": result.count,
                         "engine": engine,
-                        "voxtral_finish_seconds": voxtralFinishSeconds,
+                        "live_finish_seconds": liveFinishSeconds,
                         "apple_text": appleOriginal,
                         "whisper_redo_seconds": whisperRedoSeconds
                     ])
@@ -617,11 +515,11 @@ class DictationViewModel: ObservableObject {
                     if let typed = self.liveTypedText {
                         // Live typing: the text is already at the cursor; just complete the tail.
                         self.liveTypedText = nil
-                        if engine != "whisper", voxtralFull.hasPrefix(typed) {
-                            KeyboardTyper.type(String(voxtralFull.dropFirst(typed.count)))
+                        if engine != "whisper", liveFull.hasPrefix(typed) {
+                            KeyboardTyper.type(String(liveFull.dropFirst(typed.count)))
                         } else if engine.hasPrefix("apple"), !typed.isEmpty {
                             self.liveTypedText = typed
-                            self.typeLiveDelta(voxtralFull)
+                            self.typeLiveDelta(liveFull)
                             self.liveTypedText = nil
                         } else if typed.isEmpty {
                             self.copyToClipboard(finalText)

@@ -100,8 +100,8 @@ class TranscriptionManager {
         // Load whisper.cpp server first — this is the primary transcription engine
         await loadWhisperCpp()
         // WhisperKit is not loaded up front: batch and meetings use whisper.cpp, and dictation only
-        // needs it if the whisper.cpp server is missing. Loading it at launch competed with Voxtral
-        // for the GPU during the first dictations, so it now loads on demand (see fallback below).
+        // needs it if the whisper.cpp server is missing. Loading it at launch competed for the GPU
+        // during the first dictations, so it now loads on demand (see fallback below).
     }
 
     func updateModels(liveModel: WhisperModel, batchModel: WhisperModel) async {
@@ -271,7 +271,7 @@ enum TextCleaner {
         return applyPunctuationCommands(dehalluced)
     }
 
-    /// Cleanup for engines that already return one plain string (Voxtral): no Whisper token or
+    /// Cleanup for engines that already return one plain string (Apple live dictation): no Whisper token or
     /// hallucination stripping, just spoken punctuation commands and capitalization.
     static func cleanPlain(_ text: String) -> String {
         let collapsed = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)

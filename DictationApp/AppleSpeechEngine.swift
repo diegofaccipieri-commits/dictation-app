@@ -15,10 +15,6 @@ protocol LiveTranscriber: AnyObject, Sendable {
     func cancel()
 }
 
-extension VoxtralServer: LiveTranscriber {
-    func finishSession() async -> String? { await finish() }
-}
-
 /// Apple's on-device SpeechAnalyzer/SpeechTranscriber (macOS 26+). Runs on the Neural Engine, so it
 /// does not compete with the GPU, and needs no model download beyond the system's language asset.
 final class AppleSpeechEngine: LiveTranscriber, @unchecked Sendable {  // state is guarded by `lock`
