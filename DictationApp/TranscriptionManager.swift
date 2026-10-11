@@ -116,6 +116,11 @@ class TranscriptionManager {
     func loadWhisperCpp() async {
         let modelPath = NSHomeDirectory() + "/Documents/huggingface/models/whisper.cpp/ggml-large-v3-turbo-q5_0.bin"
         let serverPath = Bundle.main.resourcePath! + "/whisper-server"
+        // Without this model the final pass falls back to WhisperKit, measured 6-9 s per dictation
+        // on an M4 versus ~2 s here. Fetch it on first launch.
+        if !Self.hasWhisperCppModel(at: modelPath) {
+            guard await Self.downloadWhisperCppModel(to: modelPath) else { return }
+        }
         do {
             let server = try WhisperCppServer(modelPath: modelPath, serverPath: serverPath)
             server.start()
@@ -128,6 +133,41 @@ class TranscriptionManager {
             }
         } catch {
             NSLog("DictationApp: [TM] whisper.cpp server not available: %@", error.localizedDescription)
+        }
+    }
+
+    private static let whisperCppModelURL = URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin")!
+    private static let whisperCppModelBytes: Int64 = 574_041_195
+
+    private static func hasWhisperCppModel(at path: String) -> Bool {
+        let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? nil
+        return size == whisperCppModelBytes
+    }
+
+    /// Downloads to a temporary file and moves it into place only when complete.
+    private static func downloadWhisperCppModel(to path: String) async -> Bool {
+        NSLog("DictationApp: [TM] whisper.cpp model missing — downloading")
+        DictationDiagnostics.record("whisper_model_download_started")
+        let start = ProcessInfo.processInfo.systemUptime
+        do {
+            let (temp, response) = try await URLSession.shared.download(from: whisperCppModelURL)
+            let size = (try FileManager.default.attributesOfItem(atPath: temp.path)[.size] as? Int64) ?? 0
+            guard (response as? HTTPURLResponse)?.statusCode == 200, size == whisperCppModelBytes else {
+                try? FileManager.default.removeItem(at: temp)
+                throw NSError(domain: "WhisperModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "download incompleto (\(size) bytes)"])
+            }
+            let dest = URL(fileURLWithPath: path)
+            try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: dest)
+            try FileManager.default.moveItem(at: temp, to: dest)
+            DictationDiagnostics.record("whisper_model_download_finished", fields: [
+                "ok": true, "seconds": ProcessInfo.processInfo.systemUptime - start
+            ])
+            return true
+        } catch {
+            NSLog("DictationApp: [TM] whisper.cpp model download failed: %@", error.localizedDescription)
+            DictationDiagnostics.record("whisper_model_download_finished", fields: ["ok": false, "error": error.localizedDescription])
+            return false
         }
     }
 
