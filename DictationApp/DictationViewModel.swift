@@ -514,7 +514,10 @@ class DictationViewModel: ObservableObject {
                     self.addToHistory(finalText)
                     if let typed = self.liveTypedText {
                         // Live typing: the text is already at the cursor; just complete the tail.
+                        // The final text also goes to the clipboard, as with paste, so it can be
+                        // pasted again if it landed in the wrong place.
                         self.liveTypedText = nil
+                        self.copyToClipboard(finalText)
                         if engine != "whisper", liveFull.hasPrefix(typed) {
                             KeyboardTyper.type(String(liveFull.dropFirst(typed.count)))
                         } else if engine.hasPrefix("apple"), !typed.isEmpty {
