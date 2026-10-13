@@ -150,7 +150,34 @@ final class MeetingRecorder: ObservableObject {
         loadMeetings()
     }
 
-    func loadMeetings() { meetings = MeetingsStore.load() }
+    /// Bumped after online-only sidecars (titles, transcripts) come down from Dropbox.
+    @Published private(set) var sidecarsVersion = 0
+    private var fetchingSidecars = false
+
+    func loadMeetings() {
+        meetings = MeetingsStore.load()
+        fetchPlaceholderSidecars()
+    }
+
+    /// Titles and transcripts of meetings Dropbox keeps online-only read as empty files, so those
+    /// meetings showed no name and no transcript. Fetch the small sidecars in the background.
+    private func fetchPlaceholderSidecars() {
+        guard !fetchingSidecars else { return }
+        let dir = MeetingPaths.audioDir
+        fetchingSidecars = true
+        Task.detached(priority: .utility) { [weak self] in
+            let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+            let pending = files.filter { $0.pathExtension == "json" && MeetingPaths.isPlaceholder($0) }
+            pending.forEach(MeetingPaths.ensureLocal)
+            await MainActor.run {
+                guard let self else { return }
+                self.fetchingSidecars = false
+                guard !pending.isEmpty else { return }
+                self.meetings = MeetingsStore.load()
+                self.sidecarsVersion += 1
+            }
+        }
+    }
 
     func rename(_ item: MeetingItem, title: String) {
         do {

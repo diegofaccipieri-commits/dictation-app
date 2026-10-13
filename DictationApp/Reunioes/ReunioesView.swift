@@ -36,6 +36,9 @@ struct ReunioesView: View {
             transcriber.loadExisting(recorder.meetings)
             if selectedId == nil { selectedId = recorder.meetings.first?.id }
         }
+        .onChange(of: recorder.sidecarsVersion) { _, _ in
+            transcriber.loadExisting(recorder.meetings)
+        }
         .onChange(of: recorder.meetings) { _, items in
             transcriber.loadExisting(items)
             if let selectedId, items.contains(where: { $0.id == selectedId }) == false {
@@ -399,6 +402,8 @@ struct MeetingDetailView: View {
     private func loadWave() async {
         let mic = item.micURL, sys = item.systemURL
         let result = await Task.detached(priority: .utility) { () -> ([Float], [Float], Double) in
+            // Online-only Dropbox audio reads as empty: fetch it before drawing or playing.
+            [mic, sys].compactMap { $0 }.forEach(MeetingPaths.ensureLocal)
             let m = mic.map { MeetingWaveformLoader.peaks(for: $0, buckets: 700) } ?? []
             let s = sys.map { MeetingWaveformLoader.peaks(for: $0, buckets: 700) } ?? []
             let dm = mic.map { MeetingWaveformLoader.duration(for: $0) } ?? 0

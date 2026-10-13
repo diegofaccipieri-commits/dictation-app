@@ -34,6 +34,22 @@ enum MeetingPaths {
         return d
     }
 
+    /// True for a Dropbox online-only placeholder: an empty file whose content lives in the cloud.
+    /// Plain reads (Data(contentsOf:), AVAudioFile) see 0 bytes and do not trigger the download.
+    static func isPlaceholder(_ url: URL) -> Bool {
+        guard let size = (try? fm.attributesOfItem(atPath: url.path)[.size]) as? Int, size == 0 else { return false }
+        return getxattr(url.path, "com.dropbox.placeholder", nil, 0, 0, 0) >= 0
+    }
+
+    /// Downloads an online-only Dropbox file before use. A coordinated read makes Dropbox fetch it
+    /// (measured 1.4 s for 17 MB). Blocking: call off the main thread.
+    static func ensureLocal(_ url: URL) {
+        guard isPlaceholder(url) else { return }
+        var error: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &error) { _ in }
+        if let error { NSLog("DictationApp: [MEETINGS] download of %@ failed: %@", url.lastPathComponent, error.localizedDescription) }
+    }
+
     static var isUsingDropbox: Bool {
         root.path.hasPrefix(fm.homeDirectoryForCurrentUser.appendingPathComponent("Dropbox").path)
     }
