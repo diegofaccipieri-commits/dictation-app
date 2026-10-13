@@ -653,7 +653,10 @@ enum WhisperCppCLI {
         try Task.checkCancellation()
 
         guard proc.terminationStatus == 0 else { throw CLIError.failed(proc.terminationStatus) }
-        guard let data = try? Data(contentsOf: jsonURL) else { throw CLIError.noOutput }
+        guard let raw = try? Data(contentsOf: jsonURL) else { throw CLIError.noOutput }
+        // Whisper can emit invalid UTF-8 (a hallucinated multibyte char cut mid-sequence), which
+        // makes the whole JSON unreadable. Replace the bad bytes instead of losing the transcript.
+        let data = Data(String(decoding: raw, as: UTF8.self).utf8)
 
         struct Out: Decodable {
             struct Seg: Decodable {
