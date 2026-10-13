@@ -637,7 +637,7 @@ enum WhisperCppCLI {
                   let s = String(data: handle.availableData, encoding: .utf8) else { return }
             for line in s.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
                 if let r = line.range(of: "progress = ") {
-                    let digits = line[r.upperBound...].prefix { $0.isNumber }
+                    let digits = line[r.upperBound...].drop { $0 == " " }.prefix { $0.isNumber }  // "progress =  33%" is space-padded
                     if let pct = Int(digits) { onProgress(min(pct, 99)) }
                 }
             }
