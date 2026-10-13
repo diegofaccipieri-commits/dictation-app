@@ -129,6 +129,7 @@ final class MeetingRecorder: ObservableObject {
             meters.isLive = true
             clock.start()
             isRecording = true
+            MeetingTranscriber.recordingActive = true
         } catch {
             lastError = error.localizedDescription
             self.engine = nil
@@ -144,6 +145,7 @@ final class MeetingRecorder: ObservableObject {
         await engine.stop()
         self.engine = nil
         isRecording = false
+        MeetingTranscriber.recordingActive = false
         isMicrophoneMuted = false
         isSystemAudioMuted = false
         meters.reset()

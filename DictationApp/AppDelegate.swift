@@ -18,6 +18,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Accessory policy: app name visible in menu bar but never steals keyboard focus.
         NSApp.setActivationPolicy(.accessory)
+        MeetingTranscriber.shared.isDictationBusy = { [weak self] in self?.viewModel.state != .idle }
+        MeetingTranscriber.shared.startAutoQueue()
         setupMenuBar()
         requestAccessibilityAndSetupFnKey()
         // Check for updates silently on launch.

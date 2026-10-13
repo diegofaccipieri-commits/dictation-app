@@ -644,8 +644,13 @@ enum WhisperCppCLI {
         }
 
         try proc.run()
-        await Task.detached(priority: .utility) { proc.waitUntilExit() }.value
+        await withTaskCancellationHandler {
+            await Task.detached(priority: .utility) { proc.waitUntilExit() }.value
+        } onCancel: {
+            proc.terminate()
+        }
         errPipe.fileHandleForReading.readabilityHandler = nil
+        try Task.checkCancellation()
 
         guard proc.terminationStatus == 0 else { throw CLIError.failed(proc.terminationStatus) }
         guard let data = try? Data(contentsOf: jsonURL) else { throw CLIError.noOutput }

@@ -7,7 +7,7 @@ struct ReunioesView: View {
     var embedded = false
     @StateObject private var recorder = MeetingRecorder()
     @StateObject private var player = MeetingPlayer()
-    @StateObject private var transcriber = MeetingTranscriber()
+    @ObservedObject private var transcriber = MeetingTranscriber.shared
     @State private var searchText = ""
     @State private var selectedId: String?
     @State private var durations: [String: Double] = [:]
@@ -70,6 +70,11 @@ struct ReunioesView: View {
                 }
                 .buttonStyle(PillButtonStyle(kind: recorder.isRecording ? .rec : .primary))
                 .disabled(!recorder.permissions.allGranted && !recorder.isRecording)
+            }
+            if !transcriber.autoStatus.isEmpty {
+                Label(transcriber.autoStatus, systemImage: "moon.zzz")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let err = recorder.lastError {
                 Label(err, systemImage: "exclamationmark.triangle.fill")

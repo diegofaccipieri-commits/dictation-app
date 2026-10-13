@@ -18,7 +18,7 @@ struct MeetingSegment: Identifiable, Hashable, Codable {
 
 /// Persists a meeting transcript as a JSON sidecar next to the audio.
 enum MeetingTranscriptStore {
-    private static func url(for id: String) -> URL {
+    static func url(for id: String) -> URL {
         MeetingPaths.audioDir.appendingPathComponent("meeting_\(id)_transcript.json")
     }
     static func save(_ segments: [MeetingSegment], id: String) {
@@ -160,6 +160,8 @@ private struct MeetingAudioEnergyEnvelope {
 /// Transcribes the mic and system tracks separately (labels "Você" / "Outros") and merges by time.
 @MainActor
 final class MeetingTranscriber: ObservableObject {
+    static let shared = MeetingTranscriber()
+
     enum Status: Equatable {
         case idle, running(String), done, failed(String)
     }
@@ -197,11 +199,35 @@ final class MeetingTranscriber: ObservableObject {
     }
 
     func transcribe(_ item: MeetingItem, language: String) {
+        failures.removeValue(forKey: item.id)
+        if let current, current.auto {
+            // The user asked for a meeting while the idle queue is busy: theirs goes first.
+            worker?.cancel()
+            queue.insert((item, language), at: 0)
+            statusById[item.id] = .running("Na fila...")
+            return
+        }
+        if current != nil {
+            queue.append((item, language))
+            statusById[item.id] = .running("Na fila...")
+            return
+        }
+        run(item, language: language, auto: false)
+    }
+
+    private func run(_ item: MeetingItem, language: String, auto: Bool) {
+        current = (item.id, auto)
         statusById[item.id] = .running("Preparando Whisper...")
         segmentsById[item.id] = []
+        if auto { autoStatus = "Transcrevendo automaticamente: \(item.displayTitle)" }
 
-        Task {
+        worker = Task {
             do {
+                let urls = [item.micURL, item.systemURL].compactMap { $0 }
+                statusById[item.id] = .running("Baixando áudio do Dropbox...")
+                await Task.detached(priority: .utility) { urls.forEach(MeetingPaths.ensureLocal) }.value
+                try Task.checkCancellation()
+
                 var all: [MeetingSegment] = []
                 try await transcribeTrack(item.micURL, speaker: MeetingSegment.meLabel,
                                           label: "sua voz", language: language, id: item.id, into: &all)
@@ -212,9 +238,82 @@ final class MeetingTranscriber: ObservableObject {
                 segmentsById[item.id] = grouped
                 statusById[item.id] = grouped.isEmpty ? .failed("Nenhuma fala reconhecida.") : .done
                 MeetingTranscriptStore.save(grouped, id: item.id)
+                DictationDiagnostics.record("meeting_transcribed", fields: ["id": item.id, "auto": auto, "segments": grouped.count])
+            } catch is CancellationError {
+                // Paused by the user coming back (auto) or by a manual request; picked up again later.
+                statusById[item.id] = .idle
+                segmentsById.removeValue(forKey: item.id)
             } catch {
                 statusById[item.id] = .failed(error.localizedDescription)
+                failures[item.id, default: 0] += 1
+                DictationDiagnostics.record("meeting_transcribe_failed", fields: ["id": item.id, "auto": auto, "error": error.localizedDescription])
             }
+            current = nil
+            worker = nil
+            if auto { autoStatus = "" }
+            if !queue.isEmpty {
+                let (next, lang) = queue.removeFirst()
+                run(next, language: lang, auto: false)
+            } else {
+                autoTick()
+            }
+        }
+    }
+
+    // MARK: Automatic transcription of every meeting, while the Mac is idle or overnight
+
+    /// Set by the app: true while a dictation is recording or being transcribed.
+    var isDictationBusy: () -> Bool = { false }
+    /// Set by MeetingRecorder while a meeting is being recorded.
+    static var recordingActive = false
+
+    @Published private(set) var autoStatus = ""
+    @Published private(set) var pendingCount = 0
+
+    private var queue: [(MeetingItem, String)] = []
+    private var current: (id: String, auto: Bool)?
+    private var worker: Task<Void, Never>?
+    private var timer: Timer?
+    /// Meetings that failed this session are not retried by the idle queue (a manual retry still works).
+    private var failures: [String: Int] = [:]
+
+    func startAutoQueue() {
+        guard timer == nil else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            Task { @MainActor in MeetingTranscriber.shared.autoTick() }
+        }
+        autoTick()
+    }
+
+    private func autoTick() {
+        let idle = MeetingIdle.secondsSinceInput()
+        if let current, current.auto {
+            // Give the machine back as soon as the user returns.
+            if idle < 30 || Self.recordingActive || isDictationBusy() { worker?.cancel() }
+            return
+        }
+        guard current == nil else { return }
+
+        Task {
+            let pending = await Task.detached(priority: .utility) { MeetingTranscriber.pendingMeetings() }.value
+                .filter { (failures[$0.id] ?? 0) == 0 }
+            pendingCount = pending.count
+            guard let next = pending.first else { autoStatus = ""; return }
+            let night = (0..<6).contains(Calendar.current.component(.hour, from: Date()))
+            let ready = MeetingIdle.onACPower() && !Self.recordingActive && !isDictationBusy()
+                && current == nil && (idle >= 600 || (night && idle >= 120))
+            if ready {
+                run(next, language: TranscriptionLanguage.current.whisperCode, auto: true)
+            } else {
+                autoStatus = "\(pending.count) reunião(ões) sem transcrição. Serão transcritas quando o Mac ficar ocioso (10 min) ou de madrugada, na tomada."
+            }
+        }
+    }
+
+    /// Meetings with audio and no transcript file, newest first.
+    nonisolated private static func pendingMeetings() -> [MeetingItem] {
+        MeetingsStore.load().filter {
+            !FileManager.default.fileExists(atPath: MeetingTranscriptStore.url(for: $0.id).path)
         }
     }
 
@@ -254,5 +353,20 @@ enum MeetingSearch {
     static func matches(_ segment: MeetingSegment, query: String) -> Bool {
         segment.text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
             || segment.speaker.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+}
+
+import CoreGraphics
+import IOKit.ps
+
+enum MeetingIdle {
+    static func secondsSinceInput() -> TimeInterval {
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+    }
+
+    static func onACPower() -> Bool {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let type = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() else { return true }
+        return (type as String) == kIOPMACPowerKey
     }
 }
