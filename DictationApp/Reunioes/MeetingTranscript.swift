@@ -31,6 +31,32 @@ enum MeetingTranscriptStore {
     }
 }
 
+/// Per-track progress of a meeting transcription, saved after every finished block so a restart
+/// resumes where it stopped instead of starting over. Lives next to the audio in the Dropbox and
+/// is removed once the full transcript is saved.
+struct MeetingPartialTranscript: Codable {
+    var blockSeconds: Int
+    var blocks: [[MeetingSegment]]   // blocks[i] = segments of block i, in order; done blocks only
+    var finished = false             // every block of the track is done
+
+    static func url(id: String, track: String) -> URL {
+        MeetingPaths.audioDir.appendingPathComponent("meeting_\(id)_partial_\(track).json")
+    }
+    static func load(id: String, track: String) -> MeetingPartialTranscript? {
+        let url = url(id: id, track: track)
+        MeetingPaths.ensureLocal(url)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(MeetingPartialTranscript.self, from: data)
+    }
+    func save(id: String, track: String) {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        try? data.write(to: Self.url(id: id, track: track), options: .atomic)
+    }
+    static func remove(id: String) {
+        for track in ["mic", "system"] { try? FileManager.default.removeItem(at: url(id: id, track: track)) }
+    }
+}
+
 /// Produces a portable UTF-8 transcript that can be imported or pasted into other apps.
 enum MeetingTranscriptExport {
     static func plainText(title: String, date: Date, segments: [MeetingSegment]) -> String {
@@ -229,15 +255,16 @@ final class MeetingTranscriber: ObservableObject {
                 try Task.checkCancellation()
 
                 var all: [MeetingSegment] = []
-                try await transcribeTrack(item.micURL, speaker: MeetingSegment.meLabel,
+                try await transcribeTrack(item.micURL, track: "mic", speaker: MeetingSegment.meLabel,
                                           label: "sua voz", language: language, id: item.id, into: &all)
-                try await transcribeTrack(item.systemURL, speaker: MeetingSegment.othersLabel,
+                try await transcribeTrack(item.systemURL, track: "system", speaker: MeetingSegment.othersLabel,
                                           label: "os outros", language: language, id: item.id, into: &all)
 
                 let grouped = MeetingGrouping.paragraphs(from: all)
                 segmentsById[item.id] = grouped
                 statusById[item.id] = grouped.isEmpty ? .failed("Nenhuma fala reconhecida.") : .done
                 MeetingTranscriptStore.save(grouped, id: item.id)
+                MeetingPartialTranscript.remove(id: item.id)
                 DictationDiagnostics.record("meeting_transcribed", fields: ["id": item.id, "auto": auto, "segments": grouped.count])
             } catch is CancellationError {
                 // Paused by the user coming back (auto) or by a manual request; picked up again later.
@@ -317,35 +344,61 @@ final class MeetingTranscriber: ObservableObject {
         }
     }
 
-    private func transcribeTrack(_ url: URL?, speaker: String, label: String,
+    /// Long tracks are transcribed in blocks of this many seconds; each finished block is saved.
+    private static let blockSeconds = 600
+
+    private func transcribeTrack(_ url: URL?, track: String, speaker: String, label: String,
                                  language: String, id: String, into all: inout [MeetingSegment]) async throws {
         guard let url else { return }
+        var partial = MeetingPartialTranscript.load(id: id, track: track)
+            ?? MeetingPartialTranscript(blockSeconds: Self.blockSeconds, blocks: [])
+        if partial.finished {
+            all += partial.blocks.flatMap { $0 }
+            return
+        }
+
         statusById[id] = .running("Convertendo \(label)...")
         let wav = try await AudioDecoder.decodeToWav(url)
         defer { try? FileManager.default.removeItem(at: wav) }
+        try Task.checkCancellation()
 
-        statusById[id] = .running("Transcrevendo \(label)... 0%")
         let envelope = MeetingAudioEnergyEnvelope(wav: wav)
-        let segs = try await WhisperCppCLI.transcribeSegments(wav: wav,
-                                                               language: language,
-                                                               suppressNonSpeech: true,
-                                                               noSpeechThreshold: 0.35) { [weak self] pct in
-            Task { @MainActor in self?.statusById[id] = .running("Transcrevendo \(label)... \(pct)%") }
-        }
-        var discardedSilenceSegments = 0
-        all += segs.compactMap { segment in
-            let text = MeetingGrouping.cleanText(segment.text)
-            guard !text.isEmpty else { return nil }
-            guard envelope?.containsSpeech(from: segment.start, to: segment.end) ?? true else {
-                discardedSilenceSegments += 1
-                return nil
+        let total = AudioDecoder.wavSampleCount(wav)
+        let blockSamples = partial.blockSeconds * 16_000
+        let blockCount = max(1, (total + blockSamples - 1) / blockSamples)
+
+        for index in partial.blocks.count..<blockCount {
+            let offset = Double(index * partial.blockSeconds)
+            let done = { (pct: Int) in (index * 100 + pct) / blockCount }
+            statusById[id] = .running("Transcrevendo \(label)... \(done(0))%")
+            let slice = try AudioDecoder.sliceWav(wav, startSample: index * blockSamples, count: blockSamples)
+            defer { try? FileManager.default.removeItem(at: slice) }
+            let segs = try await WhisperCppCLI.transcribeSegments(wav: slice,
+                                                                   language: language,
+                                                                   suppressNonSpeech: true,
+                                                                   noSpeechThreshold: 0.35) { [weak self] pct in
+                Task { @MainActor in self?.statusById[id] = .running("Transcrevendo \(label)... \(done(pct))%") }
             }
-            return MeetingSegment(speaker: speaker, text: text, start: segment.start, end: segment.end)
+            var discardedSilenceSegments = 0
+            let block: [MeetingSegment] = segs.compactMap { segment in
+                let text = MeetingGrouping.cleanText(segment.text)
+                let start = segment.start + offset, end = segment.end + offset
+                guard !text.isEmpty else { return nil }
+                guard envelope?.containsSpeech(from: start, to: end) ?? true else {
+                    discardedSilenceSegments += 1
+                    return nil
+                }
+                return MeetingSegment(speaker: speaker, text: text, start: start, end: end)
+            }
+            if discardedSilenceSegments > 0 {
+                NSLog("DictationApp: [MEETING] discarded %d Whisper segment(s) without audible speech on %@ track",
+                      discardedSilenceSegments, label)
+            }
+            partial.blocks.append(block)
+            partial.finished = partial.blocks.count == blockCount
+            partial.save(id: id, track: track)
         }
-        if discardedSilenceSegments > 0 {
-            NSLog("DictationApp: [MEETING] discarded %d Whisper segment(s) without audible speech on %@ track",
-                  discardedSilenceSegments, label)
-        }
+        all += partial.blocks.flatMap { $0 }
     }
 }
 

@@ -150,4 +150,25 @@ enum AudioDecoder {
     private static func uint16LE(_ v: UInt16) -> Data {
         withUnsafeBytes(of: v.littleEndian) { Data($0) }
     }
+
+    /// Copies `count` samples starting at `start` out of a WAV made by `decodeToWav` (16 kHz mono
+    /// 16-bit, 44-byte header) into a new temporary WAV. Caller deletes it.
+    static func sliceWav(_ wav: URL, startSample start: Int, count: Int) throws -> URL {
+        let src = try FileHandle(forReadingFrom: wav)
+        defer { try? src.close() }
+        try src.seek(toOffset: UInt64(44 + start * 2))
+        let pcm = try src.read(upToCount: count * 2) ?? Data()
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dictation-slice-\(UUID().uuidString).wav")
+        var out = wavHeader(sampleRate: 16_000, channels: 1, bitsPerSample: 16, dataSize: Int32(pcm.count))
+        out.append(pcm)
+        try out.write(to: tmp)
+        return tmp
+    }
+
+    /// Number of samples in a WAV made by `decodeToWav`.
+    static func wavSampleCount(_ wav: URL) -> Int {
+        let size = (try? FileManager.default.attributesOfItem(atPath: wav.path)[.size] as? Int) ?? 0
+        return max(0, (size - 44) / 2)
+    }
 }

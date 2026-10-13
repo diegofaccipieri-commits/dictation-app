@@ -77,7 +77,7 @@ enum MeetingsStore {
     /// Sidecar kinds that belong to one meeting id. Matching must be exact ("<id>_<kind>"), not by
     /// prefix: the id of a trimmed copy extends the original's id ("<id>_r1"), so a prefix match
     /// on the original would also delete its recortes.
-    private static let fileKinds: Set<String> = ["mic", "system", "transcript", "metadata"]
+    private static let fileKinds: Set<String> = ["mic", "system", "transcript", "metadata", "partial_mic", "partial_system"]
 
     static func delete(_ item: MeetingItem) throws {
         let fm = FileManager.default
