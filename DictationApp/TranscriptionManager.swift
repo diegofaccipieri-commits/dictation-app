@@ -88,7 +88,7 @@ class TranscriptionManager {
 
     var isFinalModelReady: Bool {
         get async {
-            if whisperCpp != nil { return true }
+            if serverKeeper != nil { return true }
             return await final_.isReady
         }
     }
@@ -110,8 +110,9 @@ class TranscriptionManager {
         self.batchModel = batchModel
     }
 
-    // whisper.cpp server for final transcription (separate process, model stays in memory)
-    private var whisperCpp: WhisperCppServer?
+    // whisper.cpp server for final transcription (separate process). WhisperServerKeeper owns its
+    // lifecycle: started at launch, stopped after 30 min without a dictation, restarted on demand.
+    private var serverKeeper: WhisperServerKeeper?
 
     func loadWhisperCpp() async {
         let modelPath = NSHomeDirectory() + "/Documents/huggingface/models/whisper.cpp/ggml-large-v3-turbo-q5_0.bin"
@@ -121,19 +122,21 @@ class TranscriptionManager {
         if !Self.hasWhisperCppModel(at: modelPath) {
             guard await Self.downloadWhisperCppModel(to: modelPath) else { return }
         }
-        do {
-            let server = try WhisperCppServer(modelPath: modelPath, serverPath: serverPath)
-            server.start()
-            let ready = await server.waitUntilReady(timeout: 120)
-            if ready {
-                whisperCpp = server
-            } else {
-                server.stop()
-                NSLog("DictationApp: [TM] whisper.cpp server failed to start")
-            }
-        } catch {
-            NSLog("DictationApp: [TM] whisper.cpp server not available: %@", error.localizedDescription)
+        guard FileManager.default.fileExists(atPath: serverPath) else {
+            NSLog("DictationApp: [TM] whisper.cpp server not available: binary missing")
+            return
         }
+        let keeper = WhisperServerKeeper(modelPath: modelPath, serverPath: serverPath)
+        if await keeper.ensure(timeout: 120, cleanupOrphans: true) != nil {
+            serverKeeper = keeper
+        } else {
+            NSLog("DictationApp: [TM] whisper.cpp server failed to start")
+        }
+    }
+
+    /// Called when a recording starts: brings a stopped server back while the user is speaking.
+    func prewarmServer() {
+        serverKeeper?.prewarm()
     }
 
     private static let whisperCppModelURL = URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin")!
@@ -173,19 +176,20 @@ class TranscriptionManager {
 
     /// Stop the whisper.cpp server (called on app termination so no orphan survives).
     func shutdownServer() {
-        whisperCpp?.stop()
-        whisperCpp = nil
+        serverKeeper?.shutdown()
+        serverKeeper = nil
     }
 
     func transcribeSamplesFinal(_ samples: [Float]) async -> String {
         NSLog("DictationApp: [TRANSCRIBE] transcribeSamplesFinal: %d samples (%.1fs)", samples.count, Double(samples.count) / 16000.0)
 
-        if let wcpp = whisperCpp {
+        if let keeper = serverKeeper, let wcpp = await keeper.ensure() {
             NSLog("DictationApp: [TRANSCRIBE] using whisper.cpp server...")
             let start = ProcessInfo.processInfo.systemUptime
             let language = TranscriptionLanguage.current.whisperCode
             let text = await transcribeSamplesWithWhisperCpp(samples, language: language, server: wcpp)
             let elapsed = ProcessInfo.processInfo.systemUptime - start
+            keeper.touch()
             NSLog("DictationApp: [TRANSCRIBE] whisper.cpp done: %d chars in %.1fs", text.count, elapsed)
             return text
         }

@@ -4,9 +4,12 @@ import Foundation
 // Node + harness cold start) and then serves each translation as a new message on
 // stdin, so a warm translation costs only the model inference (~1-3s). Each
 // stream-json message starts a fresh session inside the same process, so no
-// context accumulates between translations.
+// context accumulates between translations. The process is dropped after
+// `idleTimeout` without a translation: kept warm it held ~130 MB around the clock.
 actor ClaudeTranslator {
     private let timeout: TimeInterval = 30
+    private let idleTimeout: TimeInterval = 10 * 60
+    private var idleTeardown: Task<Void, Never>?
 
     private var process: Process?
     private var stdinHandle: FileHandle?
@@ -39,6 +42,17 @@ actor ClaudeTranslator {
     func warmUp(mode: TranslationMode) {
         guard mode != .off else { return }
         ensureProcess(model: model(for: mode))
+        scheduleIdleTeardown()
+    }
+
+    private func scheduleIdleTeardown() {
+        idleTeardown?.cancel()
+        idleTeardown = Task {
+            try? await Task.sleep(nanoseconds: UInt64(idleTimeout * 1_000_000_000))
+            guard !Task.isCancelled, pending == nil, process != nil else { return }
+            NSLog("DictationApp: [TRANSLATE] no translation for %.0f min; dropping the claude process", idleTimeout / 60)
+            teardown()
+        }
     }
 
     func translate(_ text: String, mode: TranslationMode) async -> String? {
@@ -54,6 +68,7 @@ actor ClaudeTranslator {
         """
         let requestedModel = model(for: mode)
         let start = ProcessInfo.processInfo.systemUptime
+        defer { scheduleIdleTeardown() }
 
         // First attempt on the warm process; on failure recycle and retry once cold.
         for attempt in 1...2 {
@@ -126,7 +141,8 @@ actor ClaudeTranslator {
         }
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            if !data.isEmpty { parser.feed(data) }
+            if data.isEmpty { handle.readabilityHandler = nil; return }   // EOF: Foundation would keep calling us
+            parser.feed(data)
         }
 
         p.terminationHandler = { [weak self] proc in
@@ -171,6 +187,7 @@ actor ClaudeTranslator {
     private func handleTermination() {
         pending?.resume(nil)
         pending = nil
+        (process?.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         process = nil
         stdinHandle = nil
         lineParser = nil

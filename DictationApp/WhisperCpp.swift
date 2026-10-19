@@ -72,7 +72,8 @@ enum DictationDiagnostics {
 }
 
 /// Manages a whisper.cpp server process and transcribes via HTTP.
-/// Model stays loaded in memory — inference is fast (~2-3s for 20s of audio).
+/// Model stays loaded in memory — inference is fast (~2-3s for 20s of audio). WhisperServerKeeper
+/// decides when the process lives: it is stopped after a long idle and restarted on demand.
 class WhisperCppServer {
     let modelPath: String
     let serverPath: String
@@ -103,11 +104,16 @@ class WhisperCppServer {
         task.waitUntilExit()
     }
 
-    /// Start the server process in background. Model loads once.
-    func start() {
+    var isRunning: Bool { serverProcess?.isRunning ?? false }
+
+    /// Start the server process in background. Model loads once. `cleanupOrphans` is for the
+    /// launch path; a restart after the idle stop has no orphans and skips the 200 ms wait.
+    func start(cleanupOrphans: Bool = true) {
         guard serverProcess == nil else { return }
-        Self.killOrphanServers(port: port)
-        usleep(200_000) // let killed servers release the port before we bind
+        if cleanupOrphans {
+            Self.killOrphanServers(port: port)
+            usleep(200_000) // let killed servers release the port before we bind
+        }
 
         // Use the machine's performance cores. Measured on M1 Pro (8 P-cores): a 16s clip
         // transcribes in ~1.8s at 8 threads vs ~3.7s at 4 — the old "4 is optimal" was wrong.
@@ -140,11 +146,22 @@ class WhisperCppServer {
         }
     }
 
-    /// Stop the server process.
+    /// Stop the server process (returns at once; used at app termination).
     func stop() {
-        serverProcess?.terminate()
+        guard let process = serverProcess else { return }
         serverProcess = nil
+        process.terminate()
         NSLog("DictationApp: [WCPP] server stopped")
+    }
+
+    /// Stop and wait until the process is gone, so a restart can bind the port again.
+    func stopAndWait() async {
+        guard let process = serverProcess else { return }
+        stop()
+        for _ in 0..<40 where process.isRunning {   // up to 2 s
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
     }
 
     /// Wait for the server to be ready (model loaded).
@@ -165,7 +182,8 @@ class WhisperCppServer {
                 NSLog("DictationApp: [WCPP] server ready (%.1fs)", Date().timeIntervalSince(start))
                 return true
             }
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if Task.isCancelled { return false }
+            try? await Task.sleep(nanoseconds: 100_000_000)   // the model loads in 1-3 s; polling at 1 s added up to 1 s
         }
         NSLog("DictationApp: [WCPP] server not ready after %.0fs", timeout)
         return false
@@ -575,6 +593,173 @@ class WhisperCppServer {
 /// live dictation). Used INSTEAD of WhisperKit for file & Voice-Memos transcription because
 /// WhisperKit's CoreML model load deadlocks on macOS 26.x (`MLE5ProgramLibrary.lazyInitQueue`).
 /// It runs as a separate process, handles multi-hour files, and emits timestamped segments via `-oj`.
+/// Owns the whisper-server process used by dictation. The server keeps the model in memory
+/// (~700 MB), so after `idleTimeout` without a dictation it is stopped and brought back on the
+/// next one: `prewarm()` when a recording starts (the model loads while the user speaks) and
+/// `ensure()` before the final pass.
+final class WhisperServerKeeper: @unchecked Sendable {  // state guarded by `lock`
+    /// Minutes without a dictation before the server is stopped; `whisperServerIdleMinutes` overrides it.
+    static var idleTimeout: TimeInterval {
+        let minutes = UserDefaults.standard.double(forKey: "whisperServerIdleMinutes")
+        return (minutes > 0 ? minutes : 30) * 60
+    }
+
+    private let modelPath: String
+    private let serverPath: String
+    private let lock = NSLock()
+    private var server: WhisperCppServer?                 // running and ready
+    private var pending: WhisperCppServer?                // launched, still loading the model
+    private var starting: Task<WhisperCppServer?, Never>?
+    private var idleStop: Task<Void, Never>?
+    private var lastUse = Date()
+
+    init(modelPath: String, serverPath: String) {
+        self.modelPath = modelPath
+        self.serverPath = serverPath
+    }
+
+    /// Marks the server as in use; the idle countdown restarts from now.
+    func touch() {
+        lock.withLock { lastUse = Date() }
+        scheduleIdleStop()
+    }
+
+    /// Starts the server without waiting for it.
+    func prewarm() {
+        Task(priority: .userInitiated) { _ = await ensure() }
+    }
+
+    /// The ready server, starting one when there is none (first use, after the idle stop, or
+    /// after a crash). Nil when it fails to come up.
+    func ensure(timeout: TimeInterval = 60, cleanupOrphans: Bool = false) async -> WhisperCppServer? {
+        enum Step { case ready(WhisperCppServer), join(Task<WhisperCppServer?, Never>) }
+        let step: Step = lock.withLock {
+            lastUse = Date()
+            if let server, server.isRunning { return .ready(server) }
+            server = nil
+            if let starting { return .join(starting) }
+            let task = Task<WhisperCppServer?, Never> { [self] in
+                let began = ProcessInfo.processInfo.systemUptime
+                guard let s = try? WhisperCppServer(modelPath: modelPath, serverPath: serverPath) else { return nil }
+                lock.withLock { pending = s }
+                s.start(cleanupOrphans: cleanupOrphans)
+                let ready = await s.waitUntilReady(timeout: timeout)
+                lock.withLock { pending = nil }
+                guard ready else { s.stop(); return nil }
+                if !cleanupOrphans {   // a restart: record what the user waited for
+                    DictationDiagnostics.record("whisper_server_restart", fields: [
+                        "seconds": ProcessInfo.processInfo.systemUptime - began
+                    ])
+                }
+                return s
+            }
+            starting = task
+            return .join(task)
+        }
+        switch step {
+        case .ready(let s):
+            scheduleIdleStop()
+            return s
+        case .join(let task):
+            let result = await task.value
+            lock.withLock {
+                if starting == task { starting = nil; server = result }
+            }
+            if result != nil { scheduleIdleStop() }
+            return result
+        }
+    }
+
+    private func scheduleIdleStop() {
+        let task = Task.detached(priority: .background) { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.idleTimeout * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            await self.stopIfIdle()
+        }
+        let previous: Task<Void, Never>? = lock.withLock {
+            defer { idleStop = task }
+            return idleStop
+        }
+        previous?.cancel()
+    }
+
+    private func stopIfIdle() async {
+        let victim: WhisperCppServer? = lock.withLock {
+            guard Date().timeIntervalSince(lastUse) >= Self.idleTimeout, let s = server else { return nil }
+            server = nil
+            return s
+        }
+        guard let victim else { return }
+        NSLog("DictationApp: [WCPP] no dictation for %.0f min; stopping the server to free its memory",
+              Self.idleTimeout / 60)
+        DictationDiagnostics.record("whisper_server_idle_stop")
+        await victim.stopAndWait()
+    }
+
+    /// App termination: nothing of ours may outlive the app.
+    func shutdown() {
+        let (ready, loading): (WhisperCppServer?, WhisperCppServer?) = lock.withLock {
+            idleStop?.cancel()
+            starting?.cancel()
+            defer { server = nil; pending = nil }
+            return (server, pending)
+        }
+        ready?.stop()
+        loading?.stop()
+    }
+}
+
+/// One-shot flag a waiter can await; safe to fire from any thread, before or after the wait starts.
+private final class ExitSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func fire() {
+        let w: CheckedContinuation<Void, Never>? = lock.withLock {
+            fired = true
+            defer { waiter = nil }
+            return waiter
+        }
+        w?.resume()
+    }
+
+    func wait() async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            let done: Bool = lock.withLock {
+                if fired { return true }
+                waiter = cont
+                return false
+            }
+            if done { cont.resume() }
+        }
+    }
+}
+
+extension Process {
+    /// Launches and waits for exit through `terminationHandler`. `waitUntilExit` parks a run loop
+    /// and missed the exit of a whisper-cli killed right after launch: the wait never returned,
+    /// the meeting queue stayed busy for a day and its stderr reader spun at 100% CPU.
+    /// Cancelling the task sends SIGTERM, then SIGKILL two seconds later if the process lingers.
+    func runUntilExit() async throws {
+        let exited = ExitSignal()
+        terminationHandler = { _ in exited.fire() }
+        do { try run() } catch {
+            terminationHandler = nil
+            throw error
+        }
+        await withTaskCancellationHandler {
+            await exited.wait()
+        } onCancel: {
+            if isRunning { terminate() }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [self] in
+                if isRunning { kill(processIdentifier, SIGKILL) }
+            }
+        }
+        terminationHandler = nil
+    }
+}
+
 enum WhisperCppCLI {
 
     struct Segment {
@@ -633,8 +818,11 @@ enum WhisperCppCLI {
         proc.standardError = errPipe
 
         errPipe.fileHandleForReading.readabilityHandler = { handle in
-            guard let onProgress,
-                  let s = String(data: handle.availableData, encoding: .utf8) else { return }
+            let data = handle.availableData
+            // At EOF Foundation keeps calling the handler with empty data; left armed, that loop
+            // took a whole core for hours. Disarm here and again below, whatever the exit path.
+            if data.isEmpty { handle.readabilityHandler = nil; return }
+            guard let onProgress, let s = String(data: data, encoding: .utf8) else { return }
             for line in s.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
                 if let r = line.range(of: "progress = ") {
                     let digits = line[r.upperBound...].drop { $0 == " " }.prefix { $0.isNumber }  // "progress =  33%" is space-padded
@@ -643,13 +831,9 @@ enum WhisperCppCLI {
             }
         }
 
-        try proc.run()
-        await withTaskCancellationHandler {
-            await Task.detached(priority: .utility) { proc.waitUntilExit() }.value
-        } onCancel: {
-            proc.terminate()
-        }
-        errPipe.fileHandleForReading.readabilityHandler = nil
+        defer { errPipe.fileHandleForReading.readabilityHandler = nil }
+
+        try await proc.runUntilExit()
         try Task.checkCancellation()
 
         guard proc.terminationStatus == 0 else { throw CLIError.failed(proc.terminationStatus) }

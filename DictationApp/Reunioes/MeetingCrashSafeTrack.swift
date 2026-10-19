@@ -176,8 +176,7 @@ final class MeetingCrashSafeTrack: @unchecked Sendable {
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
         do {
-            try proc.run()
-            await Task.detached(priority: .utility) { proc.waitUntilExit() }.value
+            try await proc.runUntilExit()
             return proc.terminationStatus == 0 && FileManager.default.fileExists(atPath: m4a.path)
         } catch {
             return false

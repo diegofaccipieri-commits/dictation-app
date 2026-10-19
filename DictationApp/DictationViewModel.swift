@@ -81,7 +81,7 @@ class DictationViewModel: ObservableObject {
                 Task { @MainActor in await self?.debugFeed(wavPath: path) }
             }
         }
-        Task { await self.translator.warmUp(mode: self.translationMode) }
+        // The translator's claude process boots when a translation mode is chosen, not at launch.
     }
 
     /// Called on app termination: stop the whisper.cpp server so it doesn't outlive the app.
@@ -293,6 +293,7 @@ class DictationViewModel: ObservableObject {
 
     private func startRecording() {
         NSLog("DictationApp: [VM] startRecording called")
+        transcriptionManager.prewarmServer()
         transcribedText = ""
         errorMessage = nil
         wakeWordMonitor.stop()
