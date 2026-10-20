@@ -83,6 +83,7 @@ final class MeetingRecorder: ObservableObject {
         guard !isRecording else { return }
         refreshPermissions()
         lastError = nil
+        InputVolume.ensureMax(context: "meeting")
 
         let stamp = MeetingPaths.stamp(from: Date())
         let micURL = MeetingPaths.audioDir.appendingPathComponent("meeting_\(stamp)_mic.m4a")

@@ -38,6 +38,7 @@ class AudioRecorder: NSObject, ObservableObject {
         isRecordingSession = true
 
         NSLog("DictationApp: [RECORDER] startRecording called")
+        InputVolume.ensureMax(context: "dictation")
         try startEngine()
     }
 
