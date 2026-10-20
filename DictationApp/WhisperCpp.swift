@@ -254,7 +254,7 @@ class WhisperCppServer {
         }
 
         let lines = responseText.components(separatedBy: "\n")
-        var cleaned = Self.joinTranscriptionParts(lines)
+        var cleaned = Self.stripQuotes(Self.joinTranscriptionParts(lines))
 
         let normalizedText = cleaned
         let mergeEnabled = DictationDiagnostics.fragmentMergeEnabled
@@ -295,6 +295,17 @@ class WhisperCppServer {
         default:
             return ""
         }
+    }
+
+    // Whisper wraps a sentence spoken in another language in quotes. Diego prefers to
+    // type the quotes himself when dictating a citation, so drop them here.
+    static func stripQuotes(_ text: String) -> String {
+        var out = text
+        for q in ["\"", "\u{201C}", "\u{201D}", "\u{201E}", "\u{00AB}", "\u{00BB}"] {
+            out = out.replacingOccurrences(of: q, with: "")
+        }
+        return out.replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func joinTranscriptionParts(_ parts: [String]) -> String {
