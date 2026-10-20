@@ -230,7 +230,6 @@ class WhisperCppServer {
         appendFormField(name: "split_on_word", value: "true", boundary: boundary, to: &body)
         appendFormField(name: "max_len", value: "500", boundary: boundary, to: &body)
         appendFormField(name: "temperature", value: "0", boundary: boundary, to: &body)
-        appendFormField(name: "suppress_nst", value: "true", boundary: boundary, to: &body)
         let promptText = prompt ?? Self.defaultPrompt(for: language)
         if !promptText.isEmpty {
             appendFormField(name: "prompt", value: promptText, boundary: boundary, to: &body)
