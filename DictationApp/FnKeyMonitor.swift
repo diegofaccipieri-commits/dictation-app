@@ -143,13 +143,13 @@ class FnKeyMonitor {
         }
 
         let keyDown = doubleTapKey.isDown(in: event)
+        let now = Self.eventTime(event)
 
         if keyDown && !keyIsDown {
             keyIsDown = true
 
             // While recording: single press stops — no double-tap needed.
             if isRecording {
-                let now = ProcessInfo.processInfo.systemUptime
                 // Guard against immediate re-fire right after recording starts.
                 if now - recordingStartedAt < recordingStopGuardInterval {
                     return Unmanaged.passUnretained(event)
@@ -161,7 +161,6 @@ class FnKeyMonitor {
             }
 
             // While idle: require double-tap to start.
-            let now = ProcessInfo.processInfo.systemUptime
             let delta = now - lastKeyPressTime
             if delta < doubleTapInterval {
                 lastKeyPressTime = 0
@@ -186,10 +185,13 @@ class FnKeyMonitor {
         stateLock.lock()
         defer { stateLock.unlock() }
         let keyDown = event.modifierFlags.contains(.function)
+        // This monitor runs on the main thread, so its events can arrive late (main busy
+        // opening the microphone). Timing must use when the key was pressed, not when we
+        // got to it: a late copy of the start double-tap was being read as "stop".
+        let now = event.timestamp
         if keyDown && !keyIsDown {
             keyIsDown = true
             if isRecording {
-                let now = ProcessInfo.processInfo.systemUptime
                 if now - recordingStartedAt < recordingStopGuardInterval {
                     return
                 }
@@ -198,7 +200,6 @@ class FnKeyMonitor {
                 emitToggleIfAllowed(now: now)
                 return
             }
-            let now = ProcessInfo.processInfo.systemUptime
             let delta = now - lastKeyPressTime
             if delta < doubleTapInterval {
                 lastKeyPressTime = 0
@@ -220,6 +221,13 @@ class FnKeyMonitor {
         }
         lastToggleFireTime = now
         DispatchQueue.main.async { [weak self] in self?.onDoubleTap?() }
+    }
+
+    /// When the key was pressed, in the same clock as NSEvent.timestamp and systemUptime.
+    private static func eventTime(_ event: CGEvent) -> TimeInterval {
+        let uptime = ProcessInfo.processInfo.systemUptime
+        guard let t = NSEvent(cgEvent: event)?.timestamp, t > 0, abs(uptime - t) < 10 else { return uptime }
+        return t
     }
 
     private func recordRecordingStart(now: TimeInterval) {

@@ -293,7 +293,6 @@ class DictationViewModel: ObservableObject {
 
     private func startRecording() {
         NSLog("DictationApp: [VM] startRecording called")
-        transcriptionManager.prewarmServer()
         transcribedText = ""
         errorMessage = nil
         wakeWordMonitor.stop()
@@ -329,6 +328,9 @@ class DictationViewModel: ObservableObject {
                 options: [.userInitiated, .latencyCritical], reason: "Dictation")
             state = .recording
             DictationDiagnostics.record("recording_started", fields: ["recording_id": recordingID])
+            // Only after the microphone is open: a cold server start competing with the audio
+            // setup kept the main thread busy long enough to misread the fn double-tap.
+            transcriptionManager.prewarmServer()
         } catch {
             recorder.onNewSamples = nil
             endLiveSession(cancel: true)
