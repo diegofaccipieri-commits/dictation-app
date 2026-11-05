@@ -404,6 +404,7 @@ enum TextCleaner {
         var result = text
         // Remove CJK characters (Japanese/Chinese/Korean hallucinations)
         result = stripCJK(result)
+        result = TrailingHallucination.strip(result)
 
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
