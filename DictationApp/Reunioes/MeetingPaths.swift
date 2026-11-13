@@ -10,18 +10,39 @@ enum MeetingPaths {
         return base.appendingPathComponent("DictationApp/Meetings", isDirectory: true)
     }()
 
+    /// Why Dropbox was not used although it exists (nil when it is in use or absent).
+    private(set) static var dropboxProblem: String?
+
     static let root: URL = {
         let dropbox = fm.homeDirectoryForCurrentUser.appendingPathComponent("Dropbox", isDirectory: true)
-        let dir = fm.fileExists(atPath: dropbox.path)
-            ? dropbox.appendingPathComponent("DictationApp/Meetings", isDirectory: true)
-            : legacyRoot
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        if fm.fileExists(atPath: dropbox.path) {
+            let dir = dropbox.appendingPathComponent("DictationApp/Meetings", isDirectory: true)
+            // Dropbox in ~/Library/CloudStorage can refuse writes (macOS file access not granted).
+            // A silent createDirectory failure here lost every recording on that Mac: probe it.
+            do {
+                try fm.createDirectory(at: dir.appendingPathComponent("Audio", isDirectory: true),
+                                       withIntermediateDirectories: true)
+                let probe = dir.appendingPathComponent(".write-test-\(UUID().uuidString)")
+                try Data().write(to: probe)
+                try? fm.removeItem(at: probe)
+                return dir
+            } catch {
+                dropboxProblem = error.localizedDescription
+                NSLog("DictationApp: [MEETINGS] Dropbox folder not writable (%@); saving locally", error.localizedDescription)
+                DictationDiagnostics.record("meeting_dropbox_unwritable", fields: ["error": error.localizedDescription])
+            }
+        }
+        try? fm.createDirectory(at: legacyRoot, withIntermediateDirectories: true)
+        return legacyRoot
     }()
 
     static var audioDir: URL {
         let d = root.appendingPathComponent("Audio", isDirectory: true)
-        try? fm.createDirectory(at: d, withIntermediateDirectories: true)
+        do {
+            try fm.createDirectory(at: d, withIntermediateDirectories: true)
+        } catch {
+            NSLog("DictationApp: [MEETINGS] could not create %@: %@", d.path, error.localizedDescription)
+        }
         migrateLegacyAudioIfNeeded(to: d)
         return d
     }

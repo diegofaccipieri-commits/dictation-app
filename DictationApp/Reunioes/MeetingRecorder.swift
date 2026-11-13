@@ -22,10 +22,17 @@ final class MeetingRecorder: ObservableObject {
     let clock = MeetingClock()
 
     private var engine: MeetingCaptureEngine?
+    private var expectedFiles: [URL] = []
+
+    private var dropboxWarning: String? {
+        guard let problem = MeetingPaths.dropboxProblem else { return nil }
+        return "Sem permissão para gravar no Dropbox (\(problem)). As reuniões estão sendo salvas só neste Mac, em \(MeetingPaths.root.path). Libere o acesso do DictationApp ao Dropbox em Ajustes do Sistema > Privacidade e Segurança > Arquivos e Pastas e reabra o app."
+    }
 
     func onAppear() {
         refreshPermissions()
         loadMeetings()
+        if lastError == nil { lastError = dropboxWarning }
         // Recover crash-orphaned CAF tracks (app died mid-recording) into playable .m4a files.
         guard !isRecording else { return }
         Task {
@@ -82,12 +89,13 @@ final class MeetingRecorder: ObservableObject {
     func start() async {
         guard !isRecording else { return }
         refreshPermissions()
-        lastError = nil
+        lastError = dropboxWarning
         InputVolume.ensureMax(context: "meeting")
 
         let stamp = MeetingPaths.stamp(from: Date())
         let micURL = MeetingPaths.audioDir.appendingPathComponent("meeting_\(stamp)_mic.m4a")
         let sysURL = MeetingPaths.audioDir.appendingPathComponent("meeting_\(stamp)_system.m4a")
+        expectedFiles = [micURL, sysURL]
 
         let engine = MeetingCaptureEngine(micURL: micURL, systemURL: sysURL,
                                           microphoneMuted: isMicrophoneMuted,
@@ -151,6 +159,12 @@ final class MeetingRecorder: ObservableObject {
         isSystemAudioMuted = false
         meters.reset()
         loadMeetings()
+        // The capture used to end silently when the final files could not be written.
+        if !expectedFiles.isEmpty, !expectedFiles.contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            lastError = "A reunião não foi salva em \(MeetingPaths.audioDir.path). O áudio bruto ficou guardado e será recuperado quando o app for reaberto com a pasta acessível."
+            DictationDiagnostics.record("meeting_save_failed", fields: ["dir": MeetingPaths.audioDir.path])
+        }
+        expectedFiles = []
     }
 
     /// Bumped after online-only sidecars (titles, transcripts) come down from Dropbox.
