@@ -44,7 +44,13 @@ enum MeetingsStore {
                 .replacingOccurrences(of: "_mic", with: "")
                 .replacingOccurrences(of: "_system", with: "")
             var entry = groups[stamp] ?? (nil, nil)
-            if isMic { entry.mic = entry.mic ?? url } else { entry.system = entry.system ?? url }
+            // Same track in several dirs (Dropbox conflict copies): keep the largest, i.e. the
+            // most complete one; on a tie the earlier dir (Dropbox, then local) wins.
+            let bigger: (URL?) -> URL = { current in
+                guard let current else { return url }
+                return size(url) > size(current) ? url : current
+            }
+            if isMic { entry.mic = bigger(entry.mic) } else { entry.system = bigger(entry.system) }
             groups[stamp] = entry
         }
 
@@ -57,6 +63,10 @@ enum MeetingsStore {
                             title: loadTitle(id: stamp))
             }
             .sorted { $0.date == $1.date ? $0.id < $1.id : $0.date > $1.date }
+    }
+
+    private static func size(_ url: URL) -> Int {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
     }
 
     static func rename(_ item: MeetingItem, title: String) throws {

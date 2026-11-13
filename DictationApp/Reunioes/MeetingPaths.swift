@@ -55,21 +55,32 @@ enum MeetingPaths {
         return d
     }
 
-    /// Every dir that can hold meetings: `audioDir` first, then the local fallback.
+    /// Meetings/Audio inside folders Dropbox renamed away, e.g. "DictationApp (Selective Sync
+    /// Conflict 25)": with DictationApp unchecked in selective sync, Dropbox renames every
+    /// DictationApp folder the app creates, and its recordings vanished from the list.
+    static var conflictAudioDirs: [URL] {
+        let dropbox = fm.homeDirectoryForCurrentUser.appendingPathComponent("Dropbox", isDirectory: true)
+        let entries = (try? fm.contentsOfDirectory(at: dropbox, includingPropertiesForKeys: nil)) ?? []
+        return entries
+            .filter { $0.lastPathComponent.hasPrefix("DictationApp (") }
+            .map { $0.appendingPathComponent("Meetings/Audio", isDirectory: true) }
+            .filter { fm.fileExists(atPath: $0.path) }
+            .sorted { $0.path < $1.path }
+    }
+
+    /// Every dir that can hold meetings: `audioDir` first, then the local fallback, then
+    /// Dropbox conflict copies.
     static var audioDirs: [URL] {
-        let primary = audioDir
-        let local = localAudioDir
-        return primary.standardizedFileURL == local.standardizedFileURL ? [primary] : [primary, local]
+        var seen = Set<String>()
+        return ([audioDir, localAudioDir] + conflictAudioDirs).filter { seen.insert($0.standardizedFileURL.path).inserted }
     }
 
     /// Dir holding a meeting's audio, so sidecars (title, transcript) are written next to it.
     static func dir(forId id: String) -> URL {
-        let primary = audioDir
         let hasTrack: (URL) -> Bool = { dir in
             ["mic", "system"].contains { fm.fileExists(atPath: dir.appendingPathComponent("meeting_\(id)_\($0).m4a").path) }
         }
-        if !hasTrack(primary), hasTrack(localAudioDir) { return localAudioDir }
-        return primary
+        return audioDirs.first(where: hasTrack) ?? audioDir
     }
 
     /// Local (non-Dropbox) spool for in-progress crash-safe PCM tracks. Kept out of Dropbox so
