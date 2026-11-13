@@ -47,6 +47,31 @@ enum MeetingPaths {
         return d
     }
 
+    /// Fallback for final files when `audioDir` refuses them (Dropbox in CloudStorage that does not
+    /// keep the folder). Separate from legacy `Audio`, which `migrateLegacyAudioIfNeeded` moves.
+    static var localAudioDir: URL {
+        let d = legacyRoot.appendingPathComponent("LocalAudio", isDirectory: true)
+        try? fm.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    /// Every dir that can hold meetings: `audioDir` first, then the local fallback.
+    static var audioDirs: [URL] {
+        let primary = audioDir
+        let local = localAudioDir
+        return primary.standardizedFileURL == local.standardizedFileURL ? [primary] : [primary, local]
+    }
+
+    /// Dir holding a meeting's audio, so sidecars (title, transcript) are written next to it.
+    static func dir(forId id: String) -> URL {
+        let primary = audioDir
+        let hasTrack: (URL) -> Bool = { dir in
+            ["mic", "system"].contains { fm.fileExists(atPath: dir.appendingPathComponent("meeting_\(id)_\($0).m4a").path) }
+        }
+        if !hasTrack(primary), hasTrack(localAudioDir) { return localAudioDir }
+        return primary
+    }
+
     /// Local (non-Dropbox) spool for in-progress crash-safe PCM tracks. Kept out of Dropbox so
     /// multi-GB transient files never sync; final .m4a files land in `audioDir`.
     static var spoolDir: URL {

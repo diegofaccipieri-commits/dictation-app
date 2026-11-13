@@ -19,7 +19,7 @@ struct MeetingSegment: Identifiable, Hashable, Codable {
 /// Persists a meeting transcript as a JSON sidecar next to the audio.
 enum MeetingTranscriptStore {
     static func url(for id: String) -> URL {
-        MeetingPaths.audioDir.appendingPathComponent("meeting_\(id)_transcript.json")
+        MeetingPaths.dir(forId: id).appendingPathComponent("meeting_\(id)_transcript.json")
     }
     static func save(_ segments: [MeetingSegment], id: String) {
         guard let data = try? JSONEncoder().encode(segments) else { return }
@@ -40,7 +40,7 @@ struct MeetingPartialTranscript: Codable {
     var finished = false             // every block of the track is done
 
     static func url(id: String, track: String) -> URL {
-        MeetingPaths.audioDir.appendingPathComponent("meeting_\(id)_partial_\(track).json")
+        MeetingPaths.dir(forId: id).appendingPathComponent("meeting_\(id)_partial_\(track).json")
     }
     static func load(id: String, track: String) -> MeetingPartialTranscript? {
         let url = url(id: id, track: track)

@@ -44,7 +44,7 @@ enum MeetingTrimmer {
                 }
                 cutStart = range.start
                 cutEnd = range.end
-                let output = MeetingPaths.audioDir.appendingPathComponent("meeting_\(newId)_\(kind).m4a")
+                let output = MeetingPaths.dir(forId: item.id).appendingPathComponent("meeting_\(newId)_\(kind).m4a")
                 try? FileManager.default.removeItem(at: output)
                 try await exportCut(asset: asset, start: range.start, end: range.end, to: output)
                 written.append(output)

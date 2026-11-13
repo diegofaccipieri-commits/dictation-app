@@ -160,9 +160,15 @@ final class MeetingRecorder: ObservableObject {
         meters.reset()
         loadMeetings()
         // The capture used to end silently when the final files could not be written.
-        if !expectedFiles.isEmpty, !expectedFiles.contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-            lastError = "A reunião não foi salva em \(MeetingPaths.audioDir.path). O áudio bruto ficou guardado e será recuperado quando o app for reaberto com a pasta acessível."
-            DictationDiagnostics.record("meeting_save_failed", fields: ["dir": MeetingPaths.audioDir.path])
+        let exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+        if !expectedFiles.isEmpty, !expectedFiles.contains(where: exists) {
+            let local = expectedFiles.flatMap(MeetingCrashSafeTrack.destinations(for:)).filter { !expectedFiles.contains($0) }
+            if local.contains(where: exists) {
+                lastError = "O Dropbox recusou a gravação. A reunião foi salva neste Mac em \(MeetingPaths.localAudioDir.path)."
+            } else {
+                lastError = "A reunião não foi salva em \(MeetingPaths.audioDir.path). O áudio bruto ficou guardado e será recuperado quando o app for reaberto."
+                DictationDiagnostics.record("meeting_save_failed", fields: ["dir": MeetingPaths.audioDir.path])
+            }
         }
         expectedFiles = []
     }

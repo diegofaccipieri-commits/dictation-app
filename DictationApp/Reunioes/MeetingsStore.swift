@@ -19,7 +19,7 @@ struct MeetingItem: Identifiable, Hashable {
     }
 }
 
-/// Lists meetings by scanning the audio dir and pairing mic/system files by stamp.
+/// Lists meetings by scanning the audio dirs and pairing mic/system files by stamp.
 enum MeetingsStore {
     private struct Metadata: Codable {
         var title: String
@@ -27,7 +27,10 @@ enum MeetingsStore {
 
     static func load() -> [MeetingItem] {
         let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(at: MeetingPaths.audioDir, includingPropertiesForKeys: nil) else { return [] }
+        // Dropbox first, then the local fallback; a dir that cannot be read must not hide the other.
+        let files = MeetingPaths.audioDirs.flatMap {
+            (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? []
+        }
 
         var groups: [String: (mic: URL?, system: URL?)] = [:]
         for url in files where url.pathExtension == "m4a" {
@@ -41,7 +44,7 @@ enum MeetingsStore {
                 .replacingOccurrences(of: "_mic", with: "")
                 .replacingOccurrences(of: "_system", with: "")
             var entry = groups[stamp] ?? (nil, nil)
-            if isMic { entry.mic = url } else { entry.system = url }
+            if isMic { entry.mic = entry.mic ?? url } else { entry.system = entry.system ?? url }
             groups[stamp] = entry
         }
 
@@ -81,7 +84,9 @@ enum MeetingsStore {
 
     static func delete(_ item: MeetingItem) throws {
         let fm = FileManager.default
-        let files = try fm.contentsOfDirectory(at: MeetingPaths.audioDir, includingPropertiesForKeys: nil)
+        let files = MeetingPaths.audioDirs.flatMap {
+            (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? []
+        }
         let prefix = "meeting_\(item.id)_"
         for url in files {
             let name = url.deletingPathExtension().lastPathComponent
@@ -91,7 +96,7 @@ enum MeetingsStore {
     }
 
     private static func metadataURL(id: String) -> URL {
-        MeetingPaths.audioDir.appendingPathComponent("meeting_\(id)_metadata.json")
+        MeetingPaths.dir(forId: id).appendingPathComponent("meeting_\(id)_metadata.json")
     }
 
     private static func loadTitle(id: String) -> String? {

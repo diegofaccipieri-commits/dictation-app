@@ -115,8 +115,10 @@ final class MeetingCrashSafeTrack: @unchecked Sendable {
         }
     }
 
-    /// Close the CAF and remux it to the final .m4a. Returns true on success.
-    /// On remux failure the CAF is KEPT so `recoverOrphans` can retry on next launch.
+    /// Close the CAF and save the final .m4a (live AAC, else remux), in `audioDir` or, when that
+    /// refuses it, in `MeetingPaths.localAudioDir`. Returns true when a final file was saved.
+    /// The CAF is deleted only after the saved .m4a is verified complete; otherwise it is KEPT so
+    /// `recoverOrphans` can retry on next launch. The raw recording must never be lost.
     @discardableResult
     func finalize() async -> Bool {
         file = nil      // closes the CAF
@@ -125,44 +127,77 @@ final class MeetingCrashSafeTrack: @unchecked Sendable {
             try? FileManager.default.removeItem(at: liveAACURL)
             return false
         }
+        let expected = Self.seconds(of: cafURL)
 
-        if !liveAACFailed, promoteLiveAAC() {
-            try? FileManager.default.removeItem(at: cafURL)
-            return true
+        var saved: URL? = liveAACFailed ? nil : promoteLiveAAC()
+        if saved == nil {
+            try? FileManager.default.removeItem(at: liveAACURL)
+            let start = Date()
+            for dest in Self.destinations(for: finalURL) where await Self.remux(caf: cafURL, to: dest) {
+                saved = dest
+                break
+            }
+            NSLog("DictationApp: [MEET] %@ track remuxed via afconvert in %.1fs (ok=%d)", label, Date().timeIntervalSince(start), saved == nil ? 0 : 1)
         }
-
-        try? FileManager.default.removeItem(at: liveAACURL)
-        let start = Date()
-        let ok = await Self.remux(caf: cafURL, to: finalURL)
-        NSLog("DictationApp: [MEET] %@ track remuxed via afconvert in %.1fs (ok=%d)", label, Date().timeIntervalSince(start), ok ? 1 : 0)
-        if ok {
+        guard let saved else {
+            log.error("MeetingTrack[\(self.label, privacy: .public)] could not save anywhere; keeping CAF for recovery")
+            DictationDiagnostics.record("meeting_track_save_failed", fields: ["track": label])
+            return false
+        }
+        if saved != finalURL {
+            log.error("MeetingTrack[\(self.label, privacy: .public)] audio dir refused the file; saved locally at \(saved.path, privacy: .public)")
+            DictationDiagnostics.record("meeting_saved_locally", fields: ["track": label, "path": saved.path])
+        }
+        if Self.isComplete(saved, expectedSeconds: expected) {
             try? FileManager.default.removeItem(at: cafURL)
         } else {
-            log.error("MeetingTrack[\(self.label, privacy: .public)] remux failed; keeping CAF for recovery")
+            log.error("MeetingTrack[\(self.label, privacy: .public)] saved file not verified complete; keeping CAF")
         }
-        return ok
+        return true
     }
 
-    /// Validate the live-encoded .m4a against the PCM frame count and move it into place.
-    private func promoteLiveAAC() -> Bool {
+    /// Validate the live-encoded .m4a against the PCM frame count and move it into the first
+    /// destination that accepts it. Returns where it landed.
+    private func promoteLiveAAC() -> URL? {
         guard framesWritten > 0,
-              let probe = try? AVAudioFile(forReading: liveAACURL) else { return false }
+              let probe = try? AVAudioFile(forReading: liveAACURL) else { return nil }
         let encodedFrames = probe.length
         // AAC adds encoder priming/padding; anything beyond ~1s of drift means a broken file.
         let tolerance = Int64(probe.processingFormat.sampleRate)
         guard abs(encodedFrames - framesWritten) <= tolerance else {
             log.error("MeetingTrack[\(self.label, privacy: .public)] live AAC length mismatch (\(encodedFrames) vs \(self.framesWritten)); remuxing")
-            return false
+            return nil
         }
-        do {
-            try? FileManager.default.removeItem(at: finalURL)
-            try FileManager.default.moveItem(at: liveAACURL, to: finalURL)
-            NSLog("DictationApp: [MEET] %@ track finalized from live AAC (instant)", label)
-            return true
-        } catch {
-            log.error("MeetingTrack[\(self.label, privacy: .public)] live AAC move failed: \(error.localizedDescription, privacy: .public)")
-            return false
+        for dest in Self.destinations(for: finalURL) {
+            do {
+                try? FileManager.default.removeItem(at: dest)
+                try FileManager.default.moveItem(at: liveAACURL, to: dest)
+                NSLog("DictationApp: [MEET] %@ track finalized from live AAC (instant)", label)
+                return dest
+            } catch {
+                log.error("MeetingTrack[\(self.label, privacy: .public)] live AAC move to \(dest.deletingLastPathComponent().path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
+        return nil
+    }
+
+    /// Where a final .m4a may be saved: the given URL, then the same name in the local fallback.
+    static func destinations(for m4a: URL) -> [URL] {
+        let local = MeetingPaths.localAudioDir.appendingPathComponent(m4a.lastPathComponent)
+        return local.standardizedFileURL == m4a.standardizedFileURL ? [m4a] : [m4a, local]
+    }
+
+    /// Playable duration of an audio file, nil when it cannot be opened or is empty.
+    static func seconds(of url: URL) -> Double? {
+        guard let f = try? AVAudioFile(forReading: url), f.length > 0 else { return nil }
+        return Double(f.length) / f.fileFormat.sampleRate
+    }
+
+    /// True when `m4a` opens and lasts as long as the raw spool (1 s or 0.2% tolerance). With no
+    /// readable spool to compare against, it is never considered complete, so the CAF stays.
+    static func isComplete(_ m4a: URL, expectedSeconds: Double?) -> Bool {
+        guard let expectedSeconds, let actual = seconds(of: m4a) else { return false }
+        return abs(actual - expectedSeconds) <= max(1.0, expectedSeconds * 0.002)
     }
 
     // MARK: - Encode / recovery
@@ -195,19 +230,32 @@ final class MeetingCrashSafeTrack: @unchecked Sendable {
             try? FileManager.default.removeItem(at: stale)
         }
         for caf in files where caf.pathExtension == "caf" && caf.lastPathComponent.hasPrefix("meeting_") {
-            let m4a = finalURL(forSpool: caf)
-            if FileManager.default.fileExists(atPath: m4a.path) {
-                // Finalize completed for this track but spool cleanup didn't; just clean up.
-                try? FileManager.default.removeItem(at: caf)
-                continue
+            let expected = seconds(of: caf)
+            let candidates = destinations(for: finalURL(forSpool: caf))
+            if let existing = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+                // A final file already exists: delete the raw only if that file is verified
+                // complete. Online-only or unverifiable files are left alone, raw kept.
+                if !MeetingPaths.isPlaceholder(existing), isComplete(existing, expectedSeconds: expected) {
+                    try? FileManager.default.removeItem(at: caf)
+                    continue
+                }
+                if MeetingPaths.isPlaceholder(existing) || seconds(of: existing) != nil { continue }
             }
-            if await remux(caf: caf, to: m4a) {
-                try? FileManager.default.removeItem(at: caf)
+            var saved: URL?
+            for dest in candidates where await remux(caf: caf, to: dest) {
+                saved = dest
+                break
+            }
+            if let saved {
                 recovered += 1
-                NSLog("DictationApp: [MEET] recovered orphaned track %@", m4a.lastPathComponent)
-                log.info("recovered orphaned track \(m4a.lastPathComponent, privacy: .public)")
+                if isComplete(saved, expectedSeconds: expected) {
+                    try? FileManager.default.removeItem(at: caf)
+                }
+                NSLog("DictationApp: [MEET] recovered orphaned track %@", saved.lastPathComponent)
+                log.info("recovered orphaned track \(saved.path, privacy: .public)")
             } else {
                 NSLog("DictationApp: [MEET] recovery FAILED for %@", caf.lastPathComponent)
+                log.error("recovery FAILED for \(caf.lastPathComponent, privacy: .public); CAF kept")
             }
         }
         return recovered
