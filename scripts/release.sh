@@ -34,9 +34,19 @@ xcodebuild -scheme "${APP_NAME}" -configuration Release \
 
 APP_PATH="${PROJECT_DIR}/build/Build/Products/Release/${APP_NAME}.app"
 
+echo "==> Embedding menu bar calendar (RelogioDuplo)..."
+# O DictationApp instala este app em /Applications ao iniciar (CalendarCompanion.swift).
+"${PROJECT_DIR}/RelogioDuplo/scripts/build-app.sh" > /dev/null
+CALENDAR_APP="${APP_PATH}/Contents/Resources/RelogioDuplo.app"
+rm -rf "${CALENDAR_APP}"
+cp -R "${PROJECT_DIR}/RelogioDuplo/build/RelogioDuplo.app" "${CALENDAR_APP}"
+
 echo "==> Signing with local certificate..."
+# O calendário é assinado primeiro: ele é copiado para fora e precisa de assinatura própria válida.
+codesign -f -s "34A488E1BA65A57C8D37EC51E342923ACA9D891C" "${CALENDAR_APP}"
 codesign -f -s "34A488E1BA65A57C8D37EC51E342923ACA9D891C" --deep "${APP_PATH}"
 codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
+codesign --verify --strict "${CALENDAR_APP}"
 
 echo "==> Zipping (signed app)..."
 cd "${PROJECT_DIR}/build/Build/Products/Release"
