@@ -5,6 +5,7 @@ import SwiftUI
 
 struct CalendarView: View {
     let today: Date
+    let redSunday: Bool
     @State private var month = Date()
 
     private var calendar: Calendar { .autoupdatingCurrent }
@@ -29,7 +30,7 @@ struct CalendarView: View {
                     Text("")
                     ForEach(Array(grid.weekdaySymbols.enumerated()), id: \.offset) { column, symbol in
                         Text(symbol).font(.caption)
-                            .foregroundStyle(column == grid.sundayColumn ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
+                            .foregroundStyle(redSunday && column == grid.sundayColumn ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
                     }
                 }
                 ForEach(grid.weeks) { week in
@@ -40,7 +41,7 @@ struct CalendarView: View {
                             .foregroundStyle(Color.primary.opacity(0.15))
                             .frame(width: 22)
                         ForEach(week.days) { day in
-                            DayCell(day: day) { open(day.date) }
+                            DayCell(day: day, redSunday: redSunday) { open(day.date) }
                         }
                     }
                 }
@@ -73,6 +74,7 @@ struct CalendarView: View {
 
 private struct DayCell: View {
     let day: MonthGrid.Day
+    let redSunday: Bool
     let action: () -> Void
 
     var body: some View {
@@ -92,7 +94,7 @@ private struct DayCell: View {
 
     private var color: AnyShapeStyle {
         if day.isToday { return AnyShapeStyle(Color.white) }
-        if day.isSunday { return AnyShapeStyle(Color.red.opacity(day.inMonth ? 1 : 0.35)) }
+        if day.isSunday && redSunday { return AnyShapeStyle(Color.red.opacity(day.inMonth ? 1 : 0.35)) }
         if !day.inMonth { return AnyShapeStyle(.quaternary) }
         return day.isWeekend ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary)
     }

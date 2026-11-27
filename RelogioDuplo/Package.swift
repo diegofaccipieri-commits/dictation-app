@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "RelogioDuplo",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v14)],
     targets: [
         .target(name: "RelogioDuploCore"),
         .executableTarget(name: "RelogioDuplo", dependencies: ["RelogioDuploCore"]),

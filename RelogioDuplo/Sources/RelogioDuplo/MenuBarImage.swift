@@ -1,16 +1,19 @@
 import AppKit
+import RelogioDuploCore
 
 /// Texto da barra em "negativo": placa preenchida com o texto vazado.
 /// Imagem template: o sistema pinta a placa de branco na barra escura e de preto na clara.
 enum MenuBarImage {
-    static func make(text: String) -> NSImage {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
-        let string = NSMutableAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.black])
-        // Siglas das cidades em fonte menor que as horas.
-        let small = NSFont.systemFont(ofSize: 9, weight: .bold)
-        for label in ["TO", "SP"] {
-            let range = (text as NSString).range(of: " \(label)")
-            if range.location != NSNotFound { string.addAttribute(.font, value: small, range: range) }
+    static func make(pieces: [MenuBarText.Piece]) -> NSImage {
+        let mainFont = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
+        let smallFont = NSFont.systemFont(ofSize: 9, weight: .bold)
+        let string = NSMutableAttributedString()
+        for piece in pieces {
+            let (text, font): (String, NSFont) = switch piece {
+            case .main(let text): (text, mainFont)
+            case .small(let text): (text, smallFont)
+            }
+            string.append(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.black]))
         }
         let textSize = string.size()
         let size = NSSize(width: ceil(textSize.width) + 12, height: 18)

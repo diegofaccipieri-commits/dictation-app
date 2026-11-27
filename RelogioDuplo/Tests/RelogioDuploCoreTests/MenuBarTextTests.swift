@@ -13,7 +13,17 @@ func calendar(_ zone: String, identifier: Calendar.Identifier = .gregorian) -> C
 }
 
 @Suite struct MenuBarTextTests {
+    typealias Piece = MenuBarText.Piece
+
     let toronto = calendar("America/Toronto")
+    static let to = Clock(zoneID: "America/Toronto", label: "TO")
+    static let sp = Clock(zoneID: "America/Sao_Paulo", label: "SP")
+    static let both = Settings(clocks: [to, sp])
+    let evening = utc("2026-11-28T01:41:00Z") // 20:41 em Toronto, 22:41 em SP
+
+    func plain(_ iso: String, _ settings: Settings = both, calendar: Calendar? = nil) -> String {
+        MenuBarText.plain(now: utc(iso), systemCalendar: calendar ?? toronto, settings: settings)
+    }
 
     @Test(arguments: [
         ("2026-11-28T01:41:00Z", "27 - 20:41 TO - 22:41 SP"), // inverno, 2h
@@ -25,23 +35,68 @@ func calendar(_ zone: String, identifier: Calendar.Identifier = .gregorian) -> C
         ("2026-11-28T04:30:00Z", "27 - 23:30 TO - 1:30 SP"),  // SP já no dia seguinte
         ("2026-11-27T05:00:00Z", "27 - 0:00 TO - 2:00 SP"),   // meia-noite
     ])
-    func formats(iso: String, expected: String) {
-        #expect(MenuBarText.make(now: utc(iso), systemCalendar: toronto) == expected)
+    func twentyFourHour(iso: String, expected: String) {
+        #expect(plain(iso) == expected)
+    }
+
+    @Test(arguments: [
+        ("2026-11-27T05:05:00Z", "27 - 12:05 AM TO - 2:05 AM SP"),  // meia-noite
+        ("2026-11-27T17:00:00Z", "27 - 12:00 PM TO - 2:00 PM SP"),  // meio-dia
+        ("2026-11-28T01:41:00Z", "27 - 8:41 PM TO - 10:41 PM SP"),
+        ("2026-11-27T16:59:00Z", "27 - 11:59 AM TO - 1:59 PM SP"),
+    ])
+    func twelveHour(iso: String, expected: String) {
+        #expect(plain(iso, Settings(clocks: [Self.to, Self.sp], uses24Hour: false)) == expected)
+    }
+
+    @Test func exactPiecesIn24Hour() {
+        #expect(MenuBarText.pieces(now: evening, systemCalendar: toronto, settings: Self.both)
+            == [.main("27 - 20:41"), .small(" TO"), .main(" - 22:41"), .small(" SP")])
+    }
+
+    @Test func exactPiecesIn12Hour() {
+        let settings = Settings(clocks: [Self.to, Self.sp], uses24Hour: false)
+        #expect(MenuBarText.pieces(now: evening, systemCalendar: toronto, settings: settings)
+            == [.main("27 - 8:41"), .small(" PM TO"), .main(" - 10:41"), .small(" PM SP")])
+    }
+
+    @Test func singleClock() {
+        #expect(plain("2026-11-28T01:41:00Z", Settings(clocks: [Self.sp])) == "27 - 22:41 SP")
+    }
+
+    @Test func fourClocks() {
+        let settings = Settings(clocks: [
+            Self.to, Self.sp,
+            Clock(zoneID: "Europe/Lisbon", label: "LIS"), Clock(zoneID: "Asia/Tokyo", label: "TYO"),
+        ])
+        #expect(plain("2026-11-28T01:41:00Z", settings) == "27 - 20:41 TO - 22:41 SP - 1:41 LIS - 10:41 TYO")
+    }
+
+    @Test func emptyLabelShowsOnlyTheTime() {
+        let noLabel = Clock(zoneID: "America/Toronto", label: "")
+        #expect(MenuBarText.pieces(now: evening, systemCalendar: toronto, settings: Settings(clocks: [noLabel, Self.sp]))
+            == [.main("27 - 20:41 - 22:41"), .small(" SP")])
+        #expect(MenuBarText.pieces(now: evening, systemCalendar: toronto,
+                                   settings: Settings(clocks: [noLabel], uses24Hour: false))
+            == [.main("27 - 8:41"), .small(" PM")])
+    }
+
+    @Test func invalidZoneShowsDashes() {
+        let broken = Clock(zoneID: "Marte/Olympus_Mons", label: "MM")
+        #expect(plain("2026-11-28T01:41:00Z", Settings(clocks: [broken, Self.sp])) == "27 - --:-- MM - 22:41 SP")
+        #expect(plain("2026-11-28T01:41:00Z", Settings(clocks: [broken], uses24Hour: false)) == "27 - --:-- MM")
+    }
+
+    @Test func noClocksShowsOnlyTheDay() {
+        #expect(plain("2026-11-28T01:41:00Z", Settings(clocks: [])) == "27")
     }
 
     @Test func dayFollowsSystemZoneWhenTravelling() {
-        let tokyo = calendar("Asia/Tokyo")
-        #expect(MenuBarText.make(now: utc("2026-11-28T01:41:00Z"), systemCalendar: tokyo)
-            == "28 - 20:41 TO - 22:41 SP")
+        #expect(plain("2026-11-28T01:41:00Z", calendar: calendar("Asia/Tokyo")) == "28 - 20:41 TO - 22:41 SP")
     }
 
     @Test func hoursIgnoreSystemCalendarKind() {
-        let buddhist = calendar("America/Toronto", identifier: .buddhist)
-        #expect(MenuBarText.make(now: utc("2026-11-28T01:41:00Z"), systemCalendar: buddhist)
+        #expect(plain("2026-11-28T01:41:00Z", calendar: calendar("America/Toronto", identifier: .buddhist))
             == "27 - 20:41 TO - 22:41 SP")
-    }
-
-    @Test func missingZoneShowsDashes() {
-        #expect(MenuBarText.time(utc("2026-11-28T01:41:00Z"), in: nil) == "--:--")
     }
 }

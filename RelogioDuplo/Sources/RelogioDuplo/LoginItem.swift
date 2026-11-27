@@ -1,13 +1,21 @@
 import os
 import ServiceManagement
 
-/// O app sempre abre no login: registra a cada inicialização, sem opção na interface.
+/// O calendário sempre abre no login, a menos que o DictationApp o tenha desligado.
 enum LoginItem {
-    static func ensureEnabled() {
-        guard SMAppService.mainApp.status != .enabled else { return }
-        do { try SMAppService.mainApp.register() } catch {
-            Logger(subsystem: "com.diegofaccipieri.RelogioDuplo", category: "login")
-                .error("Abrir no login falhou: \(error.localizedDescription)")
+    /// Devolve `true` se o app deve continuar rodando.
+    static func apply(disabledByHost: Bool) -> Bool {
+        let log = Logger(subsystem: "com.diegofaccipieri.RelogioDuplo", category: "login")
+        let service = SMAppService.mainApp
+        do {
+            if disabledByHost {
+                if service.status == .enabled { try service.unregister() }
+            } else if service.status != .enabled {
+                try service.register()
+            }
+        } catch {
+            log.error("Ajuste do login falhou: \(error.localizedDescription)")
         }
+        return !disabledByHost
     }
 }
