@@ -24,7 +24,8 @@ final class StatusItemController: NSObject {
 
     private func render() {
         guard let button = statusItem.button else { return }
-        button.image = MenuBarImage.make(pieces: model.pieces)
+        let darkBar = button.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        button.image = MenuBarImage.make(pieces: model.pieces, darkBar: darkBar)
         button.setAccessibilityLabel(model.plainText)
     }
 
@@ -110,6 +111,8 @@ final class StatusItemController: NSObject {
         let menu = NSMenu()
         menu.addItem(item("Cidades e relógios…", #selector(openCities)))
         menu.addItem(.separator())
+        menu.addItem(item("Mês e dia da semana", #selector(toggleDate), checked: model.settings.showsDate))
+        menu.addItem(item("Segundos", #selector(toggleSeconds), checked: model.settings.showsSeconds))
         menu.addItem(item("Formato 24 horas", #selector(toggle24Hour), checked: model.settings.uses24Hour))
         menu.addItem(item("Domingo em vermelho", #selector(toggleRedSunday), checked: model.settings.redSunday))
 
@@ -124,6 +127,14 @@ final class StatusItemController: NSObject {
         item.target = self
         item.state = checked ? .on : .off
         return item
+    }
+
+    @objc private func toggleDate() {
+        model.update { $0.showsDate.toggle() }
+    }
+
+    @objc private func toggleSeconds() {
+        model.update { $0.showsSeconds.toggle() }
     }
 
     @objc private func toggle24Hour() {

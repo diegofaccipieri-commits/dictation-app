@@ -59,4 +59,20 @@ import Testing
     func cleanLabel(raw: String, expected: String) {
         #expect(Clock.cleanLabel(raw) == expected)
     }
+
+    @Test func dateAndSecondsAreOnByDefaultAndForOlderSettings() {
+        let zone = TimeZone(identifier: "America/Toronto")!
+        #expect(Settings.defaults(systemZone: zone).showsDate)
+        #expect(Settings.defaults(systemZone: zone).showsSeconds)
+        let older = Settings.decode(#"{"clocks":[{"zoneID":"America/Toronto","label":"TO"}],"uses24Hour":true,"redSunday":true}"#, systemZone: zone)
+        #expect(older.showsDate && older.showsSeconds)
+    }
+
+    @Test func dateAndSecondsSurviveARoundTrip() {
+        let zone = TimeZone(identifier: "America/Toronto")!
+        var s = Settings.defaults(systemZone: zone)
+        s.showsDate = false
+        s.showsSeconds = false
+        #expect(Settings.decode(s.encoded(), systemZone: zone) == s)
+    }
 }

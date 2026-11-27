@@ -9,7 +9,7 @@ final class AppModel {
     private(set) var settings: Settings
     let cities = CityCatalog.all(locale: .current)
 
-    /// Chamado a cada virada de minuto e a cada mudança de ajustes.
+    /// Chamado a cada virada de minuto (ou de segundo) e a cada mudança de ajustes.
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private let defaults: UserDefaults
@@ -51,7 +51,8 @@ final class AppModel {
         guard copy != settings else { return }
         settings = copy
         defaults.set(copy.encoded(), forKey: "settings")
-        onChange?()
+        // Reagenda: ligar ou desligar os segundos muda o passo do relógio.
+        refresh()
     }
 
     func addClock() {
@@ -99,7 +100,7 @@ final class AppModel {
 
     private func schedule() {
         timer?.invalidate()
-        let next = Timer(fire: MinuteTicker.nextFire(after: Date()), interval: 0, repeats: false) { [weak self] _ in
+        let next = Timer(fire: MinuteTicker.nextFire(after: Date(), everySecond: settings.showsSeconds), interval: 0, repeats: false) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
         RunLoop.main.add(next, forMode: .common)

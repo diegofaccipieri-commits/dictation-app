@@ -31,11 +31,19 @@ public struct Settings: Codable, Equatable, Sendable {
     public var clocks: [Clock]
     public var uses24Hour: Bool
     public var redSunday: Bool
+    /// Dia da semana e mês antes do dia, na barra.
+    public var showsDate: Bool
+    public var showsSeconds: Bool
 
-    public init(clocks: [Clock], uses24Hour: Bool = true, redSunday: Bool = true) {
+    public init(
+        clocks: [Clock], uses24Hour: Bool = true, redSunday: Bool = true,
+        showsDate: Bool = true, showsSeconds: Bool = true
+    ) {
         self.clocks = clocks
         self.uses24Hour = uses24Hour
         self.redSunday = redSunday
+        self.showsDate = showsDate
+        self.showsSeconds = showsSeconds
     }
 
     public init(from decoder: Decoder) throws {
@@ -43,6 +51,8 @@ public struct Settings: Codable, Equatable, Sendable {
         clocks = try c.decode([Clock].self, forKey: .clocks)
         uses24Hour = try c.decodeIfPresent(Bool.self, forKey: .uses24Hour) ?? true
         redSunday = try c.decodeIfPresent(Bool.self, forKey: .redSunday) ?? true
+        showsDate = try c.decodeIfPresent(Bool.self, forKey: .showsDate) ?? true
+        showsSeconds = try c.decodeIfPresent(Bool.self, forKey: .showsSeconds) ?? true
     }
 
     public static func defaultClock(systemZone: TimeZone) -> Clock {

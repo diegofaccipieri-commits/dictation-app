@@ -13,7 +13,11 @@ App separado, `RelogioDuplo.app`, identificador `com.diegofaccipieri.RelogioDupl
 
 ### Barra de menu
 
-Formato: `D - H:mm SIGLA - H:mm SIGLA ...`, um trecho por relógio, na ordem configurada.
+Formato: `DDD MMM D - H:mm:ss SIGLA - H:mm:ss SIGLA ...`, um trecho por relógio, na ordem configurada. Exemplo: `Fri Nov 27 - 20:41:07 TO - 22:41:07 SP`.
+
+Dia da semana, mês e segundos (Diego, 2026-11-27) vêm ligados por padrão e podem ser desligados no menu. Dia da semana e mês são os nomes curtos do idioma do sistema, sem ponto e com inicial maiúscula. No domingo, com "Domingo em vermelho" ligado, o dia da semana é escrito em vermelho sobre a placa (a imagem deixa de ser template e a placa é pintada conforme a barra clara ou escura). Com os segundos ligados, a barra atualiza a cada segundo.
+
+Sem dia da semana, mês e segundos, o formato é `D - H:mm SIGLA - H:mm SIGLA ...`:
 
 1. `D`: dia do mês no calendário do sistema.
 2. 24h: `27 - 20:41 TO - 22:41 SP`. 12h: `27 - 8:41 PM TO - 10:41 PM SP`.
@@ -34,8 +38,10 @@ Domingo em vermelho (inicial e dias) quando a opção estiver ligada. Desligada,
 Menu:
 
 1. "Cidades e relógios…": abre a janela de ajustes.
-2. "Formato 24 horas": marcado ou não.
-3. "Domingo em vermelho": marcado ou não.
+2. "Mês e dia da semana": marcado ou não.
+3. "Segundos": marcado ou não.
+4. "Formato 24 horas": marcado ou não.
+5. "Domingo em vermelho": marcado ou não.
 
 ### Janela "Cidades e relógios"
 

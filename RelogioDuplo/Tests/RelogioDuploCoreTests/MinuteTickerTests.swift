@@ -19,4 +19,10 @@ import Testing
         let input = utc("2026-11-27T20:42:00Z")
         #expect(MinuteTicker.nextFire(after: input) > input)
     }
+
+    @Test(arguments: [0.0, 0.004, 0.5, 0.996])
+    func firesAtNextWholeSecond(offset: Double) {
+        let base = utc("2026-11-27T20:41:07Z")
+        #expect(MinuteTicker.nextFire(after: base.addingTimeInterval(offset), everySecond: true) == base.addingTimeInterval(1))
+    }
 }
