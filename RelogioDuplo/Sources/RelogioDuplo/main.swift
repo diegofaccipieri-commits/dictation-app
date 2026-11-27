@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
+        StatusItemController.preferFirstPosition()
         controller = StatusItemController(model: AppModel())
     }
 }

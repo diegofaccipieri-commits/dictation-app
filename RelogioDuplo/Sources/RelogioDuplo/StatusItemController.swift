@@ -10,11 +10,20 @@ final class StatusItemController: NSObject {
     private var outsideClickMonitor: Any?
     private var citiesWindow: NSWindow?
 
+    private static let autosaveName = "RelogioDuplo"
+
+    /// Sem posição salva, o item nasce encostado na Central de Controle e no relógio do macOS
+    /// (o sistema guarda a distância até a borda direita). Chamar antes de criar o item.
+    static func preferFirstPosition(defaults: UserDefaults = .standard) {
+        let key = "NSStatusItem Preferred Position \(autosaveName)"
+        if defaults.object(forKey: key) == nil { defaults.set(0, forKey: key) }
+    }
+
     init(model: AppModel) {
         self.model = model
         super.init()
         // Nome fixo: a posição escolhida com Command + arrastar sobrevive a reinícios e atualizações.
-        statusItem.autosaveName = "RelogioDuplo"
+        statusItem.autosaveName = Self.autosaveName
         if let button = statusItem.button {
             button.target = self
             button.action = #selector(clicked)

@@ -27,6 +27,10 @@ Sem dia da semana, mês e segundos, o formato é `D - H:mm SIGLA - H:mm SIGLA ..
 6. Aparência em negativo: placa arredondada preenchida, texto vazado, imagem template. Siglas e AM/PM em fonte menor. Dígitos de largura fixa.
 7. Atualiza na virada de cada minuto, ao acordar, na mudança de relógio, de fuso e de ajustes.
 
+### Posição na barra
+
+Sem posição salva, o item nasce como o primeiro ao lado da Central de Controle e do relógio do macOS (Diego, 2026-11-27). Quem mover com Command + arrastar mantém a posição escolhida.
+
 ### Clique esquerdo
 
 Painel colado logo abaixo da barra, na mesma posição do menu do clique direito (Diego, 2026-11-27: sem a seta e o afastamento de um popover), com a grade do mês: mês e ano, setas, "Hoje", iniciais dos dias, número da semana bem esmaecido (15%), 6 semanas fixas, hoje destacado, fim de semana esmaecido, dias de outros meses apagados. Clique em um dia abre esse dia no Calendar (AppleScript). Ao reabrir, volta ao mês atual. Sem rodapé e sem botão "Sair".
