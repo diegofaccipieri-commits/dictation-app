@@ -35,8 +35,19 @@ enum CalendarCompanion {
         }
     }
 
+    enum InstallError: LocalizedError {
+        case foreignApp(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .foreignApp(let path): return "\(path) não é o calendário do DictationApp; não foi alterado."
+            }
+        }
+    }
+
     /// Copia o app embutido quando o instalado falta ou tem binário diferente.
     /// Devolve `true` se instalou. Sem app embutido, não faz nada.
+    /// `beforeReplace` roda só quando um calendário já instalado vai ser trocado.
     @discardableResult
     static func installIfNeeded(
         embedded: URL, installed: URL, fileManager: FileManager = .default, beforeReplace: () -> Void = {}
@@ -44,16 +55,32 @@ enum CalendarCompanion {
         let source = embedded.appendingPathComponent(binaryPath).path
         let target = installed.appendingPathComponent(binaryPath).path
         guard fileManager.fileExists(atPath: source) else { return false }
-        if fileManager.fileExists(atPath: target), fileManager.contentsEqual(atPath: source, andPath: target) {
-            return false
+
+        let exists = fileManager.fileExists(atPath: installed.path)
+        if exists {
+            // Nunca mexe num app de outra origem que por acaso esteja no mesmo caminho.
+            guard Bundle(url: installed)?.bundleIdentifier == bundleID else {
+                throw InstallError.foreignApp(installed.path)
+            }
+            if fileManager.contentsEqual(atPath: source, andPath: target) { return false }
         }
+
         // Copia para o lado e só então troca: uma cópia interrompida não deixa o app pela metade.
         let staging = installed.deletingLastPathComponent().appendingPathComponent(".\(appName).instalando")
         try? fileManager.removeItem(at: staging)
         try fileManager.copyItem(at: embedded, to: staging)
-        beforeReplace()
-        if fileManager.fileExists(atPath: installed.path) { try fileManager.removeItem(at: installed) }
-        try fileManager.moveItem(at: staging, to: installed)
+        do {
+            if exists {
+                beforeReplace()
+                // Troca atômica: se falhar, o app antigo continua no lugar.
+                _ = try fileManager.replaceItemAt(installed, withItemAt: staging)
+            } else {
+                try fileManager.moveItem(at: staging, to: installed)
+            }
+        } catch {
+            try? fileManager.removeItem(at: staging)
+            throw error
+        }
         return true
     }
 
@@ -61,19 +88,36 @@ enum CalendarCompanion {
 
     private static func enable(embedded: URL?) throws {
         setDisabledByHost(false)
+        var installError: Error?
         if let embedded {
-            try installIfNeeded(embedded: embedded, installed: installedURL, beforeReplace: terminateRunning)
+            do {
+                try installIfNeeded(embedded: embedded, installed: installedURL, beforeReplace: terminateRunning)
+            } catch {
+                installError = error
+            }
         }
-        guard FileManager.default.fileExists(atPath: installedURL.path), running().isEmpty else { return }
-        launch()
+        // Mesmo com falha na troca, o calendário que estiver instalado volta a rodar.
+        if isOurAppInstalled, running().isEmpty { launch() }
+        if let installError { throw installError }
     }
 
     private static func disable() {
-        guard FileManager.default.fileExists(atPath: installedURL.path) else { return }
+        guard isOurAppInstalled else { return }
+        // Já desligado e parado: nada a fazer (evita abrir o calendário a cada início do DictationApp).
+        if isDisabledByHost, running().isEmpty { return }
         setDisabledByHost(true)
         terminateRunning()
         // Aberto com a chave gravada, o calendário sai do login e encerra sozinho.
         launch()
+    }
+
+    private static var isOurAppInstalled: Bool {
+        Bundle(url: installedURL)?.bundleIdentifier == bundleID
+    }
+
+    private static var isDisabledByHost: Bool {
+        CFPreferencesAppSynchronize(bundleID as CFString)
+        return CFPreferencesCopyAppValue("disabledByHost" as CFString, bundleID as CFString) as? Bool ?? false
     }
 
     private static func setDisabledByHost(_ disabled: Bool) {

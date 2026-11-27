@@ -64,6 +64,8 @@ Guardados em `UserDefaults` do calendário, chave `settings`, JSON em texto. Pad
    2. Desligada: grava `disabledByHost = true`, fecha o calendário e o abre uma vez para ele sair do login. Não apaga o app.
 3. Sem app embutido (build de desenvolvimento): não instala nada; o resto funciona se o calendário já estiver instalado.
 4. Falhas vão para o log e não interrompem o DictationApp.
+5. Se já existir em `/Applications/RelogioDuplo.app` um app com outro identificador, ele não é tocado.
+6. A troca é atômica: se falhar, o calendário antigo continua no lugar e volta a ser aberto.
 
 ## Release
 
@@ -77,6 +79,6 @@ Mais de 4 relógios, eventos na grade, escolha de cores, segundos, desinstalaç�
 
 Unitários no pacote `RelogioDuplo` (lógica pura): texto da barra com 1 a 4 relógios, 12h e 24h, sigla vazia, fuso inválido, horário de verão; ajustes (padrão, limites, gravação e leitura, JSON ilegível); catálogo de cidades (busca sem acento, sugestão de sigla); grade do mês; script do Calendar.
 
-`CalendarCompanion` do DictationApp: caminhos injetáveis, exercitado por um script com pastas temporárias. Compilação do DictationApp verificada com `xcodebuild`.
+`CalendarCompanion` do DictationApp: caminhos injetáveis, exercitado por `scripts/checks/calendar-companion.sh`, com pastas temporárias. Compilação do DictationApp verificada com `xcodebuild`.
 
 Manual, com o Diego: cliques, menu, janela de cidades, opção no DictationApp.
