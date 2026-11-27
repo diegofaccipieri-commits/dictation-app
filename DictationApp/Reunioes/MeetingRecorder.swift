@@ -139,6 +139,7 @@ final class MeetingRecorder: ObservableObject {
             clock.start()
             isRecording = true
             MeetingTranscriber.recordingActive = true
+            NotificationCenter.default.post(name: .meetingRecordingChanged, object: nil, userInfo: ["active": true])
         } catch {
             lastError = error.localizedDescription
             self.engine = nil
@@ -155,6 +156,7 @@ final class MeetingRecorder: ObservableObject {
         self.engine = nil
         isRecording = false
         MeetingTranscriber.recordingActive = false
+        NotificationCenter.default.post(name: .meetingRecordingChanged, object: nil, userInfo: ["active": false])
         isMicrophoneMuted = false
         isSystemAudioMuted = false
         meters.reset()

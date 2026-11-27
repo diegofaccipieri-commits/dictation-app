@@ -3,9 +3,17 @@ import Combine
 import KeyboardShortcuts
 import SwiftUI
 
+extension Notification.Name {
+    /// Posted by MeetingRecorder when a meeting recording starts or stops (userInfo "active": Bool).
+    static let meetingRecordingChanged = Notification.Name("DictationApp.meetingRecordingChanged")
+}
+
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
+    private var dictationRecording = false
+    private var meetingRecording = false
+    private var blinkTimer: Timer?
     var popover: NSPopover?
     let viewModel = DictationViewModel()
     let hubRouter = MainHubRouter()
@@ -21,6 +29,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         MeetingTranscriber.shared.isDictationBusy = { [weak self] in self?.viewModel.state != .idle }
         MeetingTranscriber.shared.startAutoQueue()
         setupMenuBar()
+        NotificationCenter.default.addObserver(forName: .meetingRecordingChanged, object: nil, queue: .main) { [weak self] note in
+            self?.meetingRecording = (note.userInfo?["active"] as? Bool) ?? false
+            self?.updateRecordingIndicator()
+        }
         requestAccessibilityAndSetupFnKey()
         // Check for updates silently on launch.
         UpdateChecker.checkForUpdates(userInitiated: false)
@@ -42,6 +54,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Dictation")
         image?.isTemplate = true
         return image
+    }
+
+    /// Red, non-template icon: a template image is always tinted to the menu bar color, so
+    /// `contentTintColor = .systemRed` on it was ignored and the icon stayed black.
+    static func recordingIcon(_ symbol: String) -> NSImage? {
+        let config = NSImage.SymbolConfiguration(paletteColors: [.systemRed])
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Gravando")?
+            .withSymbolConfiguration(config)
+        image?.isTemplate = false
+        return image
+    }
+
+    /// Blinking red icon while dictation or a meeting records; normal mic icon otherwise.
+    private func updateRecordingIndicator() {
+        guard let button = statusItem?.button else { return }
+        let symbol = meetingRecording ? "record.circle.fill" : (dictationRecording ? "mic.fill" : nil)
+        button.contentTintColor = nil
+        guard let symbol else {
+            blinkTimer?.invalidate()
+            blinkTimer = nil
+            button.alphaValue = 1
+            button.image = Self.menuBarIcon("mic")
+            return
+        }
+        button.image = Self.recordingIcon(symbol)
+        guard blinkTimer == nil else { return }
+        button.alphaValue = 1
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak button] _ in
+            guard let button else { return }
+            button.alphaValue = button.alphaValue > 0.5 ? 0.2 : 1
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        blinkTimer = timer
     }
 
     func setupMenuBar() {
@@ -91,11 +136,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.$state
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
-                let iconName = state == .recording ? "mic.fill" : "mic"
-                self?.statusItem?.button?.image = Self.menuBarIcon(iconName)
-                // Template icon adapts to the menu bar (white on dark, black on light);
-                // only recording overrides it with red.
-                self?.statusItem?.button?.contentTintColor = state == .recording ? .systemRed : nil
+                self?.dictationRecording = (state == .recording)
+                self?.updateRecordingIndicator()
                 self?.fnMonitor.isRecording = (state == .recording)
             }
             .store(in: &cancellables)
