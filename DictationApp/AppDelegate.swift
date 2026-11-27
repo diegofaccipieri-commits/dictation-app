@@ -68,6 +68,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return image
     }
 
+    /// Blue, non-template mic shown while dictation translation is on (Diego, 2026-11-27).
+    static func translationIcon() -> NSImage? {
+        let config = NSImage.SymbolConfiguration(paletteColors: [.systemBlue])
+        let image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Dictation, tradução ativada")?
+            .withSymbolConfiguration(config)
+        image?.isTemplate = false
+        return image
+    }
+
+    /// Idle icon: blue mic when a translation mode is selected, the plain mic otherwise.
+    private func idleIcon() -> NSImage? {
+        viewModel.translationMode == .off ? Self.menuBarIcon("mic") : Self.translationIcon()
+    }
+
     /// Blinking red icon while dictation or a meeting records; normal mic icon otherwise.
     private func updateRecordingIndicator() {
         guard let button = statusItem?.button else { return }
@@ -77,7 +91,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             blinkTimer?.invalidate()
             blinkTimer = nil
             button.alphaValue = 1
-            button.image = Self.menuBarIcon("mic")
+            button.image = idleIcon()
             return
         }
         button.image = Self.recordingIcon(symbol)
@@ -95,7 +109,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            button.image = Self.menuBarIcon("mic")
+            button.image = idleIcon()
             button.action = #selector(handleStatusItemClick)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.target = self
@@ -142,6 +156,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.updateRecordingIndicator()
                 self?.fnMonitor.isRecording = (state == .recording)
             }
+            .store(in: &cancellables)
+
+        // Turning translation on or off recolors the idle mic right away.
+        viewModel.$translationMode
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateRecordingIndicator() }
             .store(in: &cancellables)
     }
 
@@ -298,7 +319,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         batch.onComplete = { [weak self] (done: Int, _: Int) in
             self?.viewModel.batchStatus = nil
-            self?.statusItem?.button?.image = Self.menuBarIcon("mic")
+            self?.statusItem?.button?.image = self?.idleIcon()
             if done > 0 {
                 let output = file.deletingPathExtension().appendingPathExtension("txt")
                 self?.notify(title: "Transcrição concluída", message: output.lastPathComponent)
@@ -334,7 +355,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         batch.onComplete = { [weak self] (done: Int, total: Int) in
             self?.viewModel.batchStatus = nil
-            self?.statusItem?.button?.image = Self.menuBarIcon("mic")
+            self?.statusItem?.button?.image = self?.idleIcon()
             self?.notify(title: "Transcrição concluída", message: "\(done) de \(total) arquivo(s) transcritos.")
         }
 
@@ -393,7 +414,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.voiceMemosStore.status = nil
             self?.voiceMemosStore.markTranscribed(ids: ids)
             self?.viewModel.batchStatus = nil
-            self?.statusItem?.button?.image = Self.menuBarIcon("mic")
+            self?.statusItem?.button?.image = self?.idleIcon()
             self?.notify(title: "Voice Memos", message: "\(done) de \(total) transcrito(s).")
             try? FileManager.default.createDirectory(at: VoiceMemosLibrary.outputFolder, withIntermediateDirectories: true)
             NSWorkspace.shared.open(VoiceMemosLibrary.outputFolder)
