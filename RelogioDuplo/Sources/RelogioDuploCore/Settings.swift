@@ -34,11 +34,14 @@ public struct Settings: Codable, Equatable, Sendable {
     /// Dia da semana e mês antes do dia, na barra.
     public var showsDate: Bool
     public var showsSeconds: Bool
+    /// Relógio do macOS analógico, sem data e sem dia da semana.
+    public var compactSystemClock: Bool
 
     public init(
         clocks: [Clock], uses24Hour: Bool = true, redSunday: Bool = true,
-        showsDate: Bool = true, showsSeconds: Bool = true
+        showsDate: Bool = true, showsSeconds: Bool = true, compactSystemClock: Bool = true
     ) {
+        self.compactSystemClock = compactSystemClock
         self.clocks = clocks
         self.uses24Hour = uses24Hour
         self.redSunday = redSunday
@@ -53,6 +56,7 @@ public struct Settings: Codable, Equatable, Sendable {
         redSunday = try c.decodeIfPresent(Bool.self, forKey: .redSunday) ?? true
         showsDate = try c.decodeIfPresent(Bool.self, forKey: .showsDate) ?? true
         showsSeconds = try c.decodeIfPresent(Bool.self, forKey: .showsSeconds) ?? true
+        compactSystemClock = try c.decodeIfPresent(Bool.self, forKey: .compactSystemClock) ?? true
     }
 
     public static func defaultClock(systemZone: TimeZone) -> Clock {

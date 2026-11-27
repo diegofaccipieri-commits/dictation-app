@@ -126,6 +126,10 @@ final class StatusItemController: NSObject {
         menu.addItem(item("Segundos", #selector(toggleSeconds), checked: model.settings.showsSeconds))
         menu.addItem(item("Formato 24 horas", #selector(toggle24Hour), checked: model.settings.uses24Hour))
         menu.addItem(item("Domingo em vermelho", #selector(toggleRedSunday), checked: model.settings.redSunday))
+        menu.addItem(.separator())
+        menu.addItem(item(
+            "Relógio do macOS analógico e sem data", #selector(toggleSystemClock),
+            checked: model.settings.compactSystemClock))
 
         // Atribuir o menu só durante o clique mantém o clique esquerdo livre para o calendário.
         statusItem.menu = menu
@@ -146,6 +150,10 @@ final class StatusItemController: NSObject {
 
     @objc private func toggleSeconds() {
         model.update { $0.showsSeconds.toggle() }
+    }
+
+    @objc private func toggleSystemClock() {
+        model.update { $0.compactSystemClock.toggle() }
     }
 
     @objc private func toggle24Hour() {

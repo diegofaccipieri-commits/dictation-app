@@ -17,6 +17,7 @@ final class AppModel {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         settings = Settings.decode(defaults.string(forKey: "settings"), systemZone: .current)
+        SystemClock.sync(compact: settings.compactSystemClock, defaults: defaults)
         schedule()
         let refresh: @Sendable (Notification) -> Void = { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -51,6 +52,7 @@ final class AppModel {
         guard copy != settings else { return }
         settings = copy
         defaults.set(copy.encoded(), forKey: "settings")
+        SystemClock.sync(compact: copy.compactSystemClock, defaults: defaults)
         // Reagenda: ligar ou desligar os segundos muda o passo do relógio.
         refresh()
     }

@@ -75,4 +75,12 @@ import Testing
         s.showsSeconds = false
         #expect(Settings.decode(s.encoded(), systemZone: zone) == s)
     }
+
+    @Test func compactSystemClockIsOnByDefaultAndSurvivesARoundTrip() {
+        let zone = TimeZone(identifier: "America/Toronto")!
+        var s = Settings.defaults(systemZone: zone)
+        #expect(s.compactSystemClock)
+        s.compactSystemClock = false
+        #expect(Settings.decode(s.encoded(), systemZone: zone) == s)
+    }
 }

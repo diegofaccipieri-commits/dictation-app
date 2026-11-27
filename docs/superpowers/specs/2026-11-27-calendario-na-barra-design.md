@@ -31,6 +31,10 @@ Sem dia da semana, mês e segundos, o formato é `D - H:mm SIGLA - H:mm SIGLA ..
 
 Sem posição salva, o item nasce como o primeiro ao lado da Central de Controle e do relógio do macOS (Diego, 2026-11-27). Quem mover com Command + arrastar mantém a posição escolhida.
 
+### Relógio do macOS
+
+O relógio do macOS não pode ser removido da barra, então o calendário o deixa compacto para substituí-lo (Diego, 2026-11-27): analógico, sem data e sem dia da semana (`com.apple.menuextra.clock`: `IsAnalog`, `ShowDate` = 2, `ShowDayOfWeek`). Ligado por padrão, com opção no menu. Os valores originais ficam guardados na chave `systemClockBackup` e voltam quando a opção é desligada ou quando o DictationApp desliga o calendário. Só quando algum valor muda, o `ControlCenter` é reiniciado para a barra reler os ajustes.
+
 ### Clique esquerdo
 
 Painel colado logo abaixo da barra, na mesma posição do menu do clique direito (Diego, 2026-11-27: sem a seta e o afastamento de um popover), com a grade do mês: mês e ano, setas, "Hoje", iniciais dos dias, número da semana bem esmaecido (15%), 6 semanas fixas, hoje destacado, fim de semana esmaecido, dias de outros meses apagados. Clique em um dia abre esse dia no Calendar (AppleScript). Ao reabrir, volta ao mês atual. Sem rodapé e sem botão "Sair".
@@ -46,6 +50,7 @@ Menu:
 3. "Segundos": marcado ou não.
 4. "Formato 24 horas": marcado ou não.
 5. "Domingo em vermelho": marcado ou não.
+6. "Relógio do macOS analógico e sem data": marcado ou não.
 
 ### Janela "Cidades e relógios"
 
