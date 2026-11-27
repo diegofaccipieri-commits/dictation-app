@@ -24,6 +24,8 @@ struct CalendarView: View {
                     .accessibilityLabel("Próximo mês")
             }
             .buttonStyle(.borderless)
+            // Sem foco de teclado: o painel abre com foco e o primeiro botão ficava com o anel de seleção.
+            .focusable(false)
 
             Grid(horizontalSpacing: 2, verticalSpacing: 2) {
                 GridRow {
@@ -90,6 +92,7 @@ private struct DayCell: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusable(false)
     }
 
     private var color: AnyShapeStyle {
