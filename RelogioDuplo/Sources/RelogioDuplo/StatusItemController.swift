@@ -13,6 +13,8 @@ final class StatusItemController: NSObject {
     init(model: AppModel) {
         self.model = model
         super.init()
+        // Nome fixo: a posição escolhida com Command + arrastar sobrevive a reinícios e atualizações.
+        statusItem.autosaveName = "RelogioDuplo"
         if let button = statusItem.button {
             button.target = self
             button.action = #selector(clicked)
