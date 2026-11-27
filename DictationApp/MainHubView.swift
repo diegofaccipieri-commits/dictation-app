@@ -588,6 +588,7 @@ private struct HubSettingsView: View {
         rawValue: UserDefaults.standard.string(forKey: "doubleTapKey") ?? ""
     ) ?? .fn
     @AppStorage("appAppearance") private var appearanceRaw = AppAppearance.system.rawValue
+    @AppStorage(CalendarCompanion.enabledKey) private var calendarEnabled = true
 
     var body: some View {
         ScrollView {
@@ -659,6 +660,16 @@ private struct HubSettingsView: View {
                         ))
                         .toggleStyle(.switch)
                     }
+                }
+
+                settingsGroup("CALENDÁRIO") {
+                    settingsRow("Calendário na barra de menu") {
+                        Toggle("", isOn: $calendarEnabled)
+                            .toggleStyle(.switch)
+                            .onChange(of: calendarEnabled) { _, _ in CalendarCompanion.sync() }
+                    }
+                    Text("Mostra o dia e a hora das cidades que você escolher. Clique com o botão direito no relógio da barra para configurar.")
+                        .font(.caption).foregroundStyle(.secondary).padding(.top, 2)
                 }
 
                 settingsGroup("MODELOS") {

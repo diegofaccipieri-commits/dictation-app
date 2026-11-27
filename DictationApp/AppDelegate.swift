@@ -36,6 +36,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         requestAccessibilityAndSetupFnKey()
         // Check for updates silently on launch.
         UpdateChecker.checkForUpdates(userInitiated: false)
+        // Instala, atualiza e inicia o calendário de barra de menu embutido.
+        CalendarCompanion.sync()
     }
 
     // Clicking the Dock icon shows the main hub.

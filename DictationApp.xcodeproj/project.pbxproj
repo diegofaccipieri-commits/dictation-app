@@ -24,6 +24,7 @@
 		38F27DBAE2090CAF4B76CA8A /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F9740C345122FA73E95E61 /* AudioRecorder.swift */; };
 		3911F500CF5C6DF284ED9FDB /* AppleTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 708161D3140BB0625429862C /* AppleTranslator.swift */; };
 		3CEE84BA24C0A63E4AD7DB89 /* TranslationWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F66D4D03048EC0DB318D6C6 /* TranslationWorkspaceView.swift */; };
+		43DCAA7E6811B2A4759961F0 /* CalendarCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9E8461C7A7C20883564B35 /* CalendarCompanion.swift */; };
 		4A2CD45EB756D26F22AC98C0 /* DictationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AA2DB2253E05E4CA4F3AD0 /* DictationViewModel.swift */; };
 		50384571E6C6C91D026A0080 /* InputVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A9C920CA2BB1E472789A9AE /* InputVolume.swift */; };
 		5BAACCBBF24329187E004540 /* TrailingHallucination.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0E61DB2AFB098F05DAC7FD /* TrailingHallucination.swift */; };
@@ -110,6 +111,7 @@
 		E36D9DB4BA4552E27E013B78 /* VoiceMemosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMemosView.swift; sourceTree = "<group>"; };
 		E3F4B580E7A10224C9DD02D1 /* VoiceMemosLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMemosLibrary.swift; sourceTree = "<group>"; };
 		EB6385DFFED4A2694E7EDC01 /* MainHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainHubView.swift; sourceTree = "<group>"; };
+		EF9E8461C7A7C20883564B35 /* CalendarCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarCompanion.swift; sourceTree = "<group>"; };
 		F6B00235D9707085A43CA292 /* DoubleTapKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleTapKey.swift; sourceTree = "<group>"; };
 		F860ADAEFC913C1972A53DFF /* MeetingSilenceWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSilenceWatchdog.swift; sourceTree = "<group>"; };
 		F96B0C571135964650738893 /* MeetingTrimLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTrimLogic.swift; sourceTree = "<group>"; };
@@ -147,6 +149,7 @@
 				AD160A3954ABFDA66CDBBD2B /* AudioDecoder.swift */,
 				09F9740C345122FA73E95E61 /* AudioRecorder.swift */,
 				82E49A420A4D311440C56A58 /* BatchTranscriber.swift */,
+				EF9E8461C7A7C20883564B35 /* CalendarCompanion.swift */,
 				B3309DCEE8D721DB76A576EA /* ClaudeTranslator.swift */,
 				AE1290CAE439A7561A41F669 /* ContentView.swift */,
 				9CC2F41DD1EC09478B0C90CC /* DiarizationService.swift */,
@@ -294,6 +297,7 @@
 				71714378D3175242330FCF8B /* AudioDecoder.swift in Sources */,
 				38F27DBAE2090CAF4B76CA8A /* AudioRecorder.swift in Sources */,
 				7F946899CFC4B86993E709FD /* BatchTranscriber.swift in Sources */,
+				43DCAA7E6811B2A4759961F0 /* CalendarCompanion.swift in Sources */,
 				9E3581F6A34F8C41C9A898C3 /* ClaudeTranslator.swift in Sources */,
 				6FD1C879FBB99E9F3D5C539E /* ContentView.swift in Sources */,
 				BF40C10319683773C1EFBDD6 /* DiarizationService.swift in Sources */,
