@@ -43,6 +43,7 @@ if [[ "${1:-}" == "--install" ]]; then
     while pgrep -x RelogioDuplo >/dev/null; do sleep 0.2; done
     rm -rf "/Applications/RelogioDuplo.app"
     cp -R "$APP" "/Applications/RelogioDuplo.app"
-    open "/Applications/RelogioDuplo.app"
+    # O LaunchServices às vezes recusa a primeira abertura logo após a troca (erro -600).
+    open "/Applications/RelogioDuplo.app" 2>/dev/null || { sleep 2; open "/Applications/RelogioDuplo.app"; }
     echo "Instalado em /Applications/RelogioDuplo.app"
 fi

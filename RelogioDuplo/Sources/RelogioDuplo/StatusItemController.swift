@@ -6,13 +6,13 @@ import SwiftUI
 final class StatusItemController: NSObject {
     private let model: AppModel
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let popover = NSPopover()
+    private var panel: NSPanel?
+    private var outsideClickMonitor: Any?
     private var citiesWindow: NSWindow?
 
     init(model: AppModel) {
         self.model = model
         super.init()
-        popover.behavior = .transient
         if let button = statusItem.button {
             button.target = self
             button.action = #selector(clicked)
@@ -40,22 +40,73 @@ final class StatusItemController: NSObject {
     // MARK: Calendário
 
     private func toggleCalendar() {
-        guard let button = statusItem.button else { return }
-        if popover.isShown {
-            popover.performClose(nil)
-            return
+        if panel != nil {
+            closeCalendar()
+        } else {
+            openCalendar()
         }
+    }
+
+    /// Painel colado logo abaixo da barra, na mesma posição em que o menu do clique direito aparece.
+    private func openCalendar() {
+        guard let button = statusItem.button, let buttonWindow = button.window else { return }
         // View nova a cada abertura: o calendário sempre volta ao mês atual.
-        popover.contentViewController = NSHostingController(rootView: CalendarPopover(model: model))
-        NSApp.activate(ignoringOtherApps: true)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        let hosting = NSHostingView(rootView: CalendarPopover(model: model))
+        let size = hosting.fittingSize
+
+        let background = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+        background.material = .menu
+        background.state = .active
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 10
+        background.layer?.masksToBounds = true
+        hosting.frame = background.bounds
+        hosting.autoresizingMask = [.width, .height]
+        background.addSubview(hosting)
+
+        let panel = CalendarPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .popUpMenu
+        panel.contentView = background
+
+        let anchor = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let screen = buttonWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchor
+        let x = min(max(anchor.minX, screen.minX + 4), screen.maxX - size.width - 4)
+        panel.setFrameOrigin(NSPoint(x: x, y: anchor.minY - size.height))
+        panel.makeKeyAndOrderFront(nil)
+        self.panel = panel
+
+        // Qualquer clique fora do painel fecha, como um menu. O clique no próprio item da barra
+        // também chega aqui (o sistema desenha o item fora do nosso processo); esse fica para
+        // `clicked`, senão o painel fecharia e reabriria no mesmo clique.
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, !self.isMouseOverButton else { return }
+                self.closeCalendar()
+            }
+        }
+    }
+
+    private var isMouseOverButton: Bool {
+        guard let button = statusItem.button, let window = button.window else { return false }
+        return window.convertToScreen(button.convert(button.bounds, to: nil)).contains(NSEvent.mouseLocation)
+    }
+
+    private func closeCalendar() {
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        outsideClickMonitor = nil
+        panel?.orderOut(nil)
+        panel = nil
     }
 
     // MARK: Menu
 
     private func showMenu() {
-        popover.performClose(nil)
+        closeCalendar()
         let menu = NSMenu()
         menu.addItem(item("Cidades e relógios…", #selector(openCities)))
         menu.addItem(.separator())
@@ -95,6 +146,11 @@ final class StatusItemController: NSObject {
         NSApp.activate(ignoringOtherApps: true)
         citiesWindow?.makeKeyAndOrderFront(nil)
     }
+}
+
+/// Painel sem borda que aceita foco, para os botões do calendário responderem ao primeiro clique.
+private final class CalendarPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }
 
 private struct CalendarPopover: View {

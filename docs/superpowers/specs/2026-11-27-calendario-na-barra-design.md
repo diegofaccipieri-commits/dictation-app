@@ -25,7 +25,7 @@ Formato: `D - H:mm SIGLA - H:mm SIGLA ...`, um trecho por relógio, na ordem con
 
 ### Clique esquerdo
 
-Popover com a grade do mês: mês e ano, setas, "Hoje", iniciais dos dias, número da semana bem esmaecido (15%), 6 semanas fixas, hoje destacado, fim de semana esmaecido, dias de outros meses apagados. Clique em um dia abre esse dia no Calendar (AppleScript). Ao reabrir, volta ao mês atual. Sem rodapé e sem botão "Sair".
+Painel colado logo abaixo da barra, na mesma posição do menu do clique direito (Diego, 2026-11-27: sem a seta e o afastamento de um popover), com a grade do mês: mês e ano, setas, "Hoje", iniciais dos dias, número da semana bem esmaecido (15%), 6 semanas fixas, hoje destacado, fim de semana esmaecido, dias de outros meses apagados. Clique em um dia abre esse dia no Calendar (AppleScript). Ao reabrir, volta ao mês atual. Sem rodapé e sem botão "Sair".
 
 Domingo em vermelho (inicial e dias) quando a opção estiver ligada. Desligada, o domingo fica esmaecido como o sábado.
 
