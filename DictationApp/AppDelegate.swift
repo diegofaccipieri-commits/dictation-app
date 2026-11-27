@@ -58,31 +58,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return image
     }
 
-    /// Red, non-template icon: a template image is always tinted to the menu bar color, so
-    /// `contentTintColor = .systemRed` on it was ignored and the icon stayed black.
-    static func recordingIcon(_ symbol: String) -> NSImage? {
-        let config = NSImage.SymbolConfiguration(paletteColors: [.systemRed])
+    /// Colored, non-template icon: a template image is always tinted to the menu bar color, so
+    /// `contentTintColor` on it was ignored and the icon stayed black.
+    static func recordingIcon(_ symbol: String, color: NSColor = .systemRed) -> NSImage? {
+        let config = NSImage.SymbolConfiguration(paletteColors: [color])
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Gravando")?
             .withSymbolConfiguration(config)
         image?.isTemplate = false
         return image
     }
 
-    /// Blue, non-template mic shown while dictation translation is on (Diego, 2026-11-27).
-    static func translationIcon() -> NSImage? {
-        let config = NSImage.SymbolConfiguration(paletteColors: [.systemBlue])
-        let image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Dictation, tradução ativada")?
-            .withSymbolConfiguration(config)
-        image?.isTemplate = false
-        return image
-    }
-
-    /// Idle icon: blue mic when a translation mode is selected, the plain mic otherwise.
+    /// Idle icon: always the plain template mic, translation on or off (Diego, 2026-11-27).
     private func idleIcon() -> NSImage? {
-        viewModel.translationMode == .off ? Self.menuBarIcon("mic") : Self.translationIcon()
+        Self.menuBarIcon("mic")
     }
 
-    /// Blinking red icon while dictation or a meeting records; normal mic icon otherwise.
+    /// Blinking icon while recording: red for a meeting or plain dictation, blue for dictation
+    /// with translation on. Normal mic icon otherwise.
     private func updateRecordingIndicator() {
         guard let button = statusItem?.button else { return }
         let symbol = meetingRecording ? "record.circle.fill" : (dictationRecording ? "mic.fill" : nil)
@@ -94,7 +86,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = idleIcon()
             return
         }
-        button.image = Self.recordingIcon(symbol)
+        let translating = !meetingRecording && viewModel.translationMode != .off
+        button.image = Self.recordingIcon(symbol, color: translating ? .systemBlue : .systemRed)
         guard blinkTimer == nil else { return }
         button.alphaValue = 1
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak button] _ in
